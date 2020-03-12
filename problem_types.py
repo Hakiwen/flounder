@@ -21,3 +21,4 @@ class MachineRelationType(Enum):
 class DeltaFunctionClass(Enum):
     CONSTANTPROCTIME = 1
     LINESIN = 2
+    SAMPLED = 3

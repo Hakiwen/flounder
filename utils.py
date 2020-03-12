@@ -9,6 +9,25 @@ import networkx as nx
 # X \in R^MxN, returns hyper x \in R^N
 # for writing, better definition of a hyperplane
 # Also determine best objective function and complexity of this
+
+
+# fun = pointer to fun e.g. delta_hat_fun_1D
+# sample_basis = what to sample against in last dimension
+# dim_sample = Dimension of sample in tuple, e.g. (N,M,num_steps)
+def sample_generic_fun(fun, sample_basis, dim_sample):
+    ones_basis = np.ones(len(sample_basis), dtype=np.int)
+    ret = np.zeros(dim_sample)
+    if len(dim_sample) == 1:
+        ret = np.array(list(map(fun, sample_basis)))
+    elif len(dim_sample) == 2:
+        for i in range(dim_sample[0]):
+            ret[i, :] = list(map(fun, sample_basis, i * ones_basis))
+    elif len(dim_sample) == 3:
+        for i in range(dim_sample[0]):
+            for j in range(dim_sample[1]):
+                ret[i, j, :] = list(map(fun, sample_basis, i * ones_basis, j * ones_basis))
+    return ret
+
 def upperbounding_hyperplane(A, b):
     A = np.array(A)
     b = np.array(b)

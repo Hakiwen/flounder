@@ -21,6 +21,7 @@ def sin_delta_fun(t, constants):
 def sin_delta_bar_fun(t, constants):
     return constants[0]*t + constants[1] + constants[2]
 
+
 class SchedulingProblemType:
     def __init__(self,
                  task_load_type,
@@ -42,40 +43,89 @@ class SchedulingProblemType:
         self.delta_function_class = delta_function_class
 
 class SchedulingProblem:
-    def __init__(self, problem_type, N, W, delta_coeffs, A=None, M=1, B=None, t_step = 0.1):
+
+    def __init__(self, problem_type, N, W, delta_sample=None, delta_coeffs=None, A=None, M=1, B=None, t_step = 0.1):
         self.problem_type = problem_type
         assert isinstance(problem_type, SchedulingProblemType)
 
-        self.num_delta_coeffs = 0
+        self.delta_sample = None
+        self.delta_bar_sample = None
+        self.delta_hat_sample = None
+        self.d = None
+        self.schedule = None
+        self.h = None
+
+        self.N = N
+        self.W = W
+
+        self.A = A
+        self.M = M
+        self.B = B
+        self.t_step = t_step
+        self.num_steps = int(W/t_step)
+        self.t_sample = np.linspace(0, self.W, self.num_steps)
+
         if problem_type.delta_function_class == DeltaFunctionClass.LINESIN:
+            self.num_delta_coeffs = 0
+            self.delta_coeffs = delta_coeffs
+            assert delta_coeffs is not None
             self.num_delta_coeffs = 3
             self.generic_delta_fun = sin_delta_fun
             self.generic_delta_bar_fun = sin_delta_bar_fun
+            if problem_type.task_load_type == TaskLoadType.UNIFORM and not problem_type.machine_type == MachineType.HETEROGENEOUS:
+                assert delta_coeffs.shape == (self.num_delta_coeffs,)
+                self.delta_fun = self.delta_fun_1D
+                self.delta_bar_fun = self.delta_bar_fun_1D
+                self.delta_hat_fun = self.delta_hat_fun_1D
+                self.sample_dim = (self.num_steps,)
+            elif problem_type.task_load_type == TaskLoadType.UNIFORM and problem_type.machine_type == MachineType.HETEROGENEOUS:
+                assert delta_coeffs.shape == (M, self.num_delta_coeffs)
+                self.delta_fun = self.delta_fun_2D
+                self.delta_bar_fun = self.delta_bar_fun_2D
+                self.delta_hat_fun = self.delta_hat_fun_2D
+                self.sample_dim = (M, self.num_steps)
+            elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and not problem_type.machine_type == MachineType.HETEROGENEOUS:
+                assert delta_coeffs.shape == (N, self.num_delta_coeffs)
+                self.delta_fun = self.delta_fun_2D
+                self.delta_bar_fun = self.delta_bar_fun_2D
+                self.delta_hat_fun = self.delta_hat_fun_2D
+                self.sample_dim = (N, self.num_steps)
+            elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and problem_type.machine_type == MachineType.HETEROGENEOUS:
+                assert delta_coeffs.shape == (N, M, self.num_delta_coeffs)
+                self.delta_fun = self.delta_fun_3D
+                self.delta_bar_fun = self.delta_bar_fun_3D
+                self.delta_hat_fun = self.delta_hat_fun_3D
+                self.sample_dim = (N, M, self.num_steps)
+
+        elif problem_type.delta_function_class == DeltaFunctionClass.SAMPLED:
+            assert delta_sample is not None
+            self.delta_sample = delta_sample
+            if problem_type.task_load_type == TaskLoadType.UNIFORM and not problem_type.machine_type == MachineType.HETEROGENEOUS:
+                assert delta_sample.shape == (self.num_steps,)
+                self.delta_bar_fun = self.delta_bar_fun_1D
+                self.delta_hat_fun = self.delta_hat_fun_1D
+                self.sample_dim = (self.num_steps)
+
+            elif problem_type.task_load_type == TaskLoadType.UNIFORM and problem_type.machine_type == MachineType.HETEROGENEOUS:
+                assert delta_coeffs.shape == (M, self.num_steps)
+                self.delta_bar_fun = self.delta_bar_fun_2D
+                self.delta_hat_fun = self.delta_hat_fun_2D
+                self.sample_dim = (M, self.num_steps)
+
+            elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and not problem_type.machine_type == MachineType.HETEROGENEOUS:
+                assert delta_coeffs.shape == (N, self.num_steps)
+                self.delta_bar_fun = self.delta_bar_fun_2D
+                self.delta_hat_fun = self.delta_hat_fun_2D
+                self.sample_dim = (N, self.num_steps)
+
+            elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and problem_type.machine_type == MachineType.HETEROGENEOUS:
+                assert delta_coeffs.shape == (N, M, self.num_steps)
+                self.delta_bar_fun = self.delta_bar_fun_3D
+                self.delta_hat_fun = self.delta_hat_fun_3D
+                self.sample_dim = (N, M, self.num_steps)
 
         self.multimachine = (problem_type.machine_type == MachineType.HOMOGENEOUS
                              or problem_type.machine_type == MachineType.HETEROGENEOUS)
-
-        if problem_type.task_load_type == TaskLoadType.UNIFORM and not problem_type.machine_type == MachineType.HETEROGENEOUS:
-            assert delta_coeffs.shape == (self.num_delta_coeffs,)
-            self.delta_fun = self.delta_fun_1D
-            self.delta_bar_fun = self.delta_bar_fun_1D
-            self.delta_hat_fun = self.delta_hat_fun_1D
-
-        elif problem_type.task_load_type == TaskLoadType.UNIFORM and problem_type.machine_type == MachineType.HETEROGENEOUS:
-            assert delta_coeffs.shape == (M, self.num_delta_coeffs)
-            self.delta_fun = self.delta_fun_2D
-            self.delta_bar_fun = self.delta_bar_fun_2D
-            self.delta_hat_fun = self.delta_hat_fun_2D
-        elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and not problem_type.machine_type == MachineType.HETEROGENEOUS:
-            assert delta_coeffs.shape == (N, self.num_delta_coeffs)
-            self.delta_fun = self.delta_fun_2D
-            self.delta_bar_fun = self.delta_bar_fun_2D
-            self.delta_hat_fun = self.delta_hat_fun_2D
-        elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and problem_type.machine_type == MachineType.HETEROGENEOUS:
-            assert delta_coeffs.shape == (N, M, self.num_delta_coeffs)
-            self.delta_fun = self.delta_fun_3D
-            self.delta_bar_fun = self.delta_bar_fun_3D
-            self.delta_hat_fun = self.delta_hat_fun_3D
 
         if A is not None:
             assert A.shape == (N, N)
@@ -83,22 +133,6 @@ class SchedulingProblem:
         if B is not None:
             assert B.shape == (M, M)
             self.H = nx.to_networkx_graph(B, create_using=nx.DiGraph)
-
-        self.N = N
-        self.W = W
-        self.delta_coeffs = delta_coeffs
-        self.A = A
-        self.M = M
-        self.B = B
-        self.t_step = t_step
-
-        self.delta_sample = {}
-        self.delta_bar_sample = {}
-        self.delta_hat_sample = {}
-        self.d = {}
-        self.num_steps = {}
-        self.t_sample = {}
-        self.schedule = {}
 
 
 
@@ -112,13 +146,14 @@ class SchedulingProblem:
         return self.generic_delta_fun(t, self.delta_coeffs[i, j])
 
     def delta_bar_fun_1D(self, t):
-        return self.generic_delta_bar_fun(t, self.delta_coeffs)
+        return self.h[0]*t + self.h[1]
 
     def delta_bar_fun_2D(self, t, i):
-        return self.generic_delta_bar_fun(t, self.delta_coeffs[i])
+        return self.h[i, 0]*t + self.h[i, 1]
 
+    # Assumes second dimension corresponds to k or another in dimension for the mapping
     def delta_bar_fun_3D(self, t, i, j):
-        return self.generic_delta_bar_fun(t, self.delta_coeffs[i, j])
+        return self.h[i, 0]*t + self.h[i, 1]*j + self.h[i, 2]
 
     def delta_hat_fun_1D(self, t):
         return t + self.d
@@ -131,63 +166,118 @@ class SchedulingProblem:
 
     def find_WCPT(self):
         bounds = optimize.Bounds([0], [self.W])
-        self.d = 1
-        if len(self.delta_coeffs.shape) == 1:
-            d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t), [self.W], bounds=bounds)
-            self.d = -1*d_optimize_result.fun[0]
-        elif len(self.delta_coeffs.shape) == 2:
-            self.d = np.zeros((self.delta_coeffs.shape[0]))
-            for i in range(self.delta_coeffs.shape[0]):
-                d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t, i), [self.W], bounds=bounds)
-                self.d[i] = -1*d_optimize_result.fun[0]
-        elif len(self.delta_coeffs.shape) == 3:
-            self.d = np.zeros((self.delta_coeffs.shape[0], self.delta_coeffs.shape[1]))
-            for i in range(self.delta_coeffs.shape[0]):
-                for j in range(self.delta_coeffs.shape[1]):
-                    d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t, i, j), [self.W], bounds=bounds)
-                    self.d[i, j] = -1*d_optimize_result.fun[0]
+        self.d = -1
+        if self.problem_type.delta_function_class == DeltaFunctionClass.LINESIN:
+            if len(self.delta_coeffs.shape) == 1:
+                d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t), [self.W], bounds=bounds)
+                self.d = -1*d_optimize_result.fun[0]
+            elif len(self.delta_coeffs.shape) == 2:
+                self.d = np.zeros((self.delta_coeffs.shape[0]))
+                for i in range(self.delta_coeffs.shape[0]):
+                    d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t, i), [self.W], bounds=bounds)
+                    self.d[i] = -1*d_optimize_result.fun[0]
+            elif len(self.delta_coeffs.shape) == 3:
+                self.d = np.zeros((self.delta_coeffs.shape[0], self.delta_coeffs.shape[1]))
+                for i in range(self.delta_coeffs.shape[0]):
+                    for j in range(self.delta_coeffs.shape[1]):
+                        d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t, i, j), [self.W], bounds=bounds)
+                        self.d[i, j] = -1*d_optimize_result.fun[0]
+        elif self.problem_type.delta_function_class == DeltaFunctionClass.SAMPLED:
+            if len(self.delta_sample.shape) == 1:
+                self.d = np.max(self.delta_sample - self.t_sample)
+            elif len(self.delta_sample.shape) == 2:
+                self.d = np.zeros((self.delta_sample.shape[0]))
+                for i in range(self.delta_sample.shape[0]):
+                    self.d[i] = np.max(self.delta_sample[i, :] - self.t_sample)
+            elif len(self.delta_sample.shape) == 3:
+                self.d = np.zeros((self.delta_sample.shape[0], self.delta_sample.shape[1]))
+                for i in range(self.delta_sample.shape[0]):
+                    for j in range(self.delta_sample.shape[1]):
+                        self.d[i, j] = np.max(self.delta_sample[i, j, :] - self.t_sample)
 
-    def sample_fun(self):
+    def sample_delta_fun(self):
+        self.delta_sample = utils.sample_generic_fun(self.delta_fun, self.t_sample, self.sample_dim)
+
+    def sample_delta_bar_fun(self):
+        if self.h is None:
+            self.approximate_delta()
+        self.delta_bar_sample = utils.sample_generic_fun(self.delta_bar_fun, self.t_sample, self.sample_dim)
+
+    def sample_delta_hat_fun(self):
         if not self.d:
             self.find_WCPT()
-        self.num_steps = int(self.W/self.t_step)
-        self.t_sample = np.linspace(0, self.W, self.num_steps)
-        if len(self.delta_coeffs.shape) == 1:
-            self.delta_sample = list(map(self.delta_fun, self.t_sample))
-            self.delta_bar_sample = list(map(self.delta_bar_fun, self.t_sample))
-            self.delta_hat_sample = list(map(self.delta_hat_fun, self.t_sample))
-        elif len(self.delta_coeffs.shape) == 2:
-            self.delta_sample = np.zeros((self.delta_coeffs.shape[0], self.num_steps))
-            self.delta_bar_sample = self.delta_sample.copy()
-            self.delta_hat_sample = self.delta_sample.copy()
-            for i in range(self.delta_coeffs.shape[0]):
-                self.delta_sample[i, :] = list(map(self.delta_fun, self.t_sample, i*np.ones(self.num_steps, dtype=np.int)))
-                self.delta_bar_sample[i, :] = list(map(self.delta_bar_fun, self.t_sample, i*np.ones(self.num_steps, dtype=np.int)))
-                self.delta_hat_sample[i, :] = list(map(self.delta_hat_fun, self.t_sample, i*np.ones(self.num_steps, dtype=np.int)))
-        elif len(self.delta_coeffs.shape) == 3:
-            self.delta_sample = np.zeros((self.delta_coeffs.shape[0], self.delta_coeffs.shape[1], self.num_steps))
-            self.delta_bar_sample = self.delta_sample.copy()
-            self.delta_hat_sample = self.delta_sample.copy()
-            for i in range(self.delta_coeffs.shape[0]):
-                for j in range(self.delta_coeffs.shape[1]):
-                    self.delta_sample[i, j, :] = list(map(self.delta_fun, self.t_sample, i*np.ones(self.num_steps, dtype=np.int), j*np.ones(self.num_steps, dtype=np.int)))
-                    self.delta_bar_sample[i, j, :] = list(map(self.delta_bar_fun, self.t_sample, i*np.ones(self.num_steps, dtype=np.int) , j*np.ones(self.num_steps, dtype=np.int)))
-                    self.delta_hat_sample[i, j, :] = list(map(self.delta_hat_fun, self.t_sample, i*np.ones(self.num_steps, dtype=np.int), j*np.ones(self.num_steps, dtype=np.int)))
+        self.delta_hat_sample = utils.sample_generic_fun(self.delta_hat_fun, self.t_sample, self.sample_dim)
+
+    def approximate_delta(self):
+        if self.delta_sample is None:
+            self.sample_delta_fun()
+
+        if self.problem_type.machine_type == MachineType.SINGLE or self.problem_type.machine_type == MachineType.HOMOGENEOUS:
+            h_dim = 2
+            ones = np.ones(self.num_steps)
+            if self.problem_type.task_load_type == TaskLoadType.NONUNIFORM:
+                self.h = np.zeros((self.N, h_dim))
+                for i in range(self.N):
+                    this_sample = self.delta_sample[i, :]
+                    ones = np.ones(this_sample.shape)
+                    this_in = np.column_stack((self.t_sample, ones))
+                    # this_in = this_in.transpose()
+                    self.h[i], self.total_approx_error = utils.upperbounding_hyperplane(this_in, this_sample)
+
+            elif self.problem_type.task_load_type == TaskLoadType.UNIFORM:
+                self.h = np.zeros(h_dim)
+                ones = np.ones(self.delta_sample.shape)
+                this_in = np.column_stack((self.t_sample, ones))
+                # this_in = this_in.transpose()
+                self.h, self.total_approx_error = utils.upperbounding_hyperplane(this_in, self.delta_sample)
+
+        elif self.problem_type.machine_type == MachineType.HETEROGENEOUS:
+            h_dim = 3
+            self.h = np.zeros((self.N, h_dim))
+            ones = np.ones(self.M*self.num_steps)
+            for i in range(self.N):
+                this_sample = []
+                this_p_index = []
+                this_t_sample = []
+                for k in range(self.M):
+                    this_sample = np.concatenate((this_sample, self.delta_sample[i, k, :]))
+                    this_p_index = np.concatenate((this_p_index, k*np.ones(self.num_steps)))
+                    this_t_sample = np.concatenate((this_t_sample, self.t_sample))
+                this_in = np.column_stack((this_t_sample, this_p_index, ones))
+                # print(this_in.shape)
+                self.h[i], self.total_approx_error = utils.upperbounding_hyperplane(this_in, this_sample)
 
     def compute_schedule(self):
+        if self.h is None:
+            self.approximate_delta()
         model = mip.Model(solver_name=mip.CBC)
         s = [model.add_var(name='s({})'.format(i+1)) for i in range(self.N)]
         C = [model.add_var(name='C({})'.format(i+1)) for i in range(self.N)]
-        sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(self.N)] for j
-                 in range(self.N)]
+        sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(self.N)]
+                 for j in range(self.N)]
         if self.multimachine:
             p = [model.add_var(var_type=mip.INTEGER, name='p({})'.format(i + 1)) for i in range(self.N)]
-            x = [[model.add_var(var_type=mip.BINARY, name='x({},{}'.format(i + 1, k + 1)) for k in range(self.M)] for i in
-                 range(self.N)]
+            x = [[model.add_var(var_type=mip.BINARY, name='x({},{}'.format(i + 1, k + 1)) for k in range(self.M)]
+                 for i in range(self.N)]
             epsilon = [
-                [model.add_var(var_type=mip.BINARY, name='epsilon({},{})'.format(i + 1, j + 1)) for i in range(self.N)] for j
-                in range(self.N)]
+                [model.add_var(var_type=mip.BINARY, name='epsilon({},{})'.format(i + 1, j + 1)) for i in range(self.N)]
+                for j in range(self.N)]
             proc_assign_sum = {}
+
+        if self.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
+            gamma = [
+                [
+                    [
+                        [
+                            model.add_var(var_type=mip.BINARY, name='z({},{},{},{})'.format(i + 1, j + 1, h + 1, k + 1))
+                            for k in range(self.M)
+                        ]
+                        for h in range(self.M)
+                    ]
+                    for j in range(self.N)
+                ]
+                for i in range(self.N)
+            ]
 
         for i in range(self.N):
             model += s[i] >= 0
@@ -204,11 +294,12 @@ class SchedulingProblem:
                 model += proc_assign_sum[i] == 1
             if self.problem_type.delta_function_class == DeltaFunctionClass.LINESIN:
                 if len(self.delta_coeffs.shape) == 1:
-                    C[i] = self.delta_coeffs[0]*s[i] + self.delta_coeffs[1] + self.delta_coeffs[2]
+                    C[i] = self.h[0]*s[i] + self.h[1]
                 elif len(self.delta_coeffs.shape) == 2:
-                    C[i] = self.delta_coeffs[i, 0]*s[i] + self.delta_coeffs[i, 1] + self.delta_coeffs[i, 2]
+                    C[i] = self.h[i, 0]*s[i] + self.h[i, 1]
+                # TODO:  change to check for specifically het machines vs het tasks, the above is only valid for tasks
                 elif len(self.delta_coeffs.shape) == 3:
-                    C[i] = self.delta_coeffs[i, p[i], 0]*s[i] + self.delta_coeffs[i, p[i], 1] + self.delta_coeffs[i, p[i], 2]
+                    C[i] = self.h[i, 0]*s[i] + self.h[i, 1]*p[i] + self.h[i, 2]
 
         z = model.add_var(name='z')
         for i in range(self.N):
@@ -232,6 +323,14 @@ class SchedulingProblem:
                     if self.problem_type.task_relation_type == TaskRelationType.PRECEDENCE:
                         model += sigma[i][j] >= self.A[i, j]
 
+                    if self.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
+                        for h in range(self.M):
+                            for k in range(self.M):
+                                model += x[i][h] - gamma[i][j][h][k] >= 0
+                                model += x[j][k] - gamma[i][j][h][k] >= 0
+                                model += x[i][h] + x[j][k] - 1 - gamma[i][j][h][k] <= 0
+                                model += self.A[i][j]*gamma[i][j][h][k] <= self.B[h][k]
+
         model.optimize()
 
         def pasum(x, i):
@@ -247,11 +346,17 @@ class SchedulingProblem:
             else:
                 self.schedule.append((s[i].x, 0))
 
-
     def plot_delta_fun(self):
 
-        if not self.delta_sample:
-            self.sample_fun()
+        if self.delta_sample is None:
+            self.sample_delta_fun()
+
+        if self.delta_bar_sample is None:
+            self.sample_delta_bar_fun()
+
+        if self.delta_hat_sample is None:
+            self.sample_delta_hat_fun()
+
         fig = go.Figure()
         if len(self.delta_coeffs.shape) == 1:
             fig = go.Figure()
@@ -377,11 +482,11 @@ if __name__ == "__main__":
 
 
 
-    problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
-    problem_uniform = SchedulingProblem(problem_type_uniform, N, W, delta_coeffs[0, 0, :])
-    problem_uniform.plot_delta_fun()
-    problem_uniform.compute_schedule()
-    problem_uniform.plot_schedule()
+    # problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
+    # problem_uniform = SchedulingProblem(problem_type_uniform, N, W, delta_coeffs[0, 0, :])
+    # problem_uniform.plot_delta_fun()
+    # problem_uniform.compute_schedule()
+    # problem_uniform.plot_schedule()
     #
     # problem_type_nonuniform = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.UNRELATED)
     # problem_nonuniform = SchedulingProblem(problem_type_nonuniform, N, W, delta_coeffs[:, 0, :])
@@ -399,9 +504,14 @@ if __name__ == "__main__":
     # problem_nonuniform_prec_homo = SchedulingProblem(problem_type_nonuniform_prec_homo, N, W, delta_coeffs[:, 0, :], A=A, M=3)
     # problem_nonuniform_prec_homo.compute_schedule()
     # problem_nonuniform_prec_homo.plot_schedule()
+    problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
+    problem_uniform = SchedulingProblem(problem_type_uniform, N, W, delta_coeffs=delta_coeffs[0, 0, :])
+    problem_uniform.plot_delta_fun()
+    problem_uniform.compute_schedule()
+    problem_uniform.plot_schedule()
 
-    problem_type_nonuniform_prec_het = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.PRECEDENCE, MachineType.HETEROGENEOUS)
-    problem_nonuniform_prec_het = SchedulingProblem(problem_type_nonuniform_prec_het, N, W, delta_coeffs, A=A, M=3)
-    problem_nonuniform_prec_het.plot_delta_fun()
-    problem_nonuniform_prec_het.compute_schedule()
-    problem_nonuniform_prec_het.plot_schedule()
+    # problem_type_nonuniform_prec_het = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.PRECEDENCE, MachineType.HETEROGENEOUS)
+    # problem_nonuniform_prec_het = SchedulingProblem(problem_type_nonuniform_prec_het, N, W, delta_coeffs=delta_coeffs, A=A, M=3)
+    # problem_nonuniform_prec_het.plot_delta_fun()
+    # problem_nonuniform_prec_het.compute_schedule()
+    # problem_nonuniform_prec_het.plot_schedule()
