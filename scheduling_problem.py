@@ -5,21 +5,25 @@ import numpy as np
 
 from scipy import optimize
 
+import itertools
+
+import mip
+
 from plotly.subplots import make_subplots
 from plotly import graph_objects as go
 import plotly.figure_factory as ff
 
-import mip
-
-import random
-
 import networkx as nx
+
 
 def sin_delta_fun(t, constants):
     return constants[0]*t + constants[1]*np.sin(t) + constants[2]
 
 def sin_delta_bar_fun(t, constants):
     return constants[0]*t + constants[1] + constants[2]
+
+# In code, first index of tasks and machines is 0
+# In reference and display, first index of tasks and machines is 1
 
 
 class SchedulingProblemType:
@@ -42,18 +46,22 @@ class SchedulingProblemType:
         self.machine_relation_type = machine_relation_type
         self.delta_function_class = delta_function_class
 
+
 class SchedulingProblem:
 
-    def __init__(self, problem_type, N, W, delta_sample=None, delta_coeffs=None, A=None, M=1, B=None, t_step = 0.1):
+    def __init__(self, problem_type, N, W, delta_sample=None, delta_coeffs=None, A=None, M=1, B=None, t_step=0.1):
         self.problem_type = problem_type
         assert isinstance(problem_type, SchedulingProblemType)
 
         self.delta_sample = None
         self.delta_bar_sample = None
         self.delta_hat_sample = None
+        self.delta_coeffs = None
         self.d = None
         self.schedule = None
         self.h = None
+        self.P_perm = None
+        self.p_permuted = False
 
         self.N = N
         self.W = W
@@ -107,19 +115,19 @@ class SchedulingProblem:
                 self.sample_dim = (self.num_steps)
 
             elif problem_type.task_load_type == TaskLoadType.UNIFORM and problem_type.machine_type == MachineType.HETEROGENEOUS:
-                assert delta_coeffs.shape == (M, self.num_steps)
+                assert delta_sample.shape == (M, self.num_steps)
                 self.delta_bar_fun = self.delta_bar_fun_2D
                 self.delta_hat_fun = self.delta_hat_fun_2D
                 self.sample_dim = (M, self.num_steps)
 
             elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and not problem_type.machine_type == MachineType.HETEROGENEOUS:
-                assert delta_coeffs.shape == (N, self.num_steps)
+                assert delta_sample.shape == (N, self.num_steps)
                 self.delta_bar_fun = self.delta_bar_fun_2D
                 self.delta_hat_fun = self.delta_hat_fun_2D
                 self.sample_dim = (N, self.num_steps)
 
             elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and problem_type.machine_type == MachineType.HETEROGENEOUS:
-                assert delta_coeffs.shape == (N, M, self.num_steps)
+                assert delta_sample.shape == (N, M, self.num_steps)
                 self.delta_bar_fun = self.delta_bar_fun_3D
                 self.delta_hat_fun = self.delta_hat_fun_3D
                 self.sample_dim = (N, M, self.num_steps)
@@ -133,7 +141,6 @@ class SchedulingProblem:
         if B is not None:
             assert B.shape == (M, M)
             self.H = nx.to_networkx_graph(B, create_using=nx.DiGraph)
-
 
 
     def delta_fun_1D(self, t):
@@ -208,6 +215,25 @@ class SchedulingProblem:
             self.find_WCPT()
         self.delta_hat_sample = utils.sample_generic_fun(self.delta_hat_fun, self.t_sample, self.sample_dim)
 
+    def permute_P(self):
+        assert self.P_perm is not None
+        if self.delta_coeffs is not None:
+            new_delta_coeffs = np.zeros(self.delta_coeffs.shape)
+            for i in range(self.M):
+                new_delta_coeffs[:, i, :] = self.delta_coeffs[:, self.P_perm[i], :]
+            self.delta_coeffs = new_delta_coeffs
+        if self.B is not None:
+            new_B = np.zeros(self.B.shape)
+            for i in range(self.M):
+                for j in range(self.M):
+                    new_B[i, j] = self.B[self.P_perm[i], self.P_perm[j]]
+            self.B = new_B
+        if self.delta_sample is not None:
+            new_delta_sample = np.zeros(self.delta_sample.shape)
+            for i in range(self.M):
+                new_delta_sample[:, i, :] = self.delta_sample[:, self.P_perm[i], :]
+        self.p_permuted = True
+
     def approximate_delta(self):
         if self.delta_sample is None:
             self.sample_delta_fun()
@@ -215,6 +241,7 @@ class SchedulingProblem:
         if self.problem_type.machine_type == MachineType.SINGLE or self.problem_type.machine_type == MachineType.HOMOGENEOUS:
             h_dim = 2
             ones = np.ones(self.num_steps)
+            # t_sample
             if self.problem_type.task_load_type == TaskLoadType.NONUNIFORM:
                 self.h = np.zeros((self.N, h_dim))
                 for i in range(self.N):
@@ -232,20 +259,38 @@ class SchedulingProblem:
                 self.h, self.total_approx_error = utils.upperbounding_hyperplane(this_in, self.delta_sample)
 
         elif self.problem_type.machine_type == MachineType.HETEROGENEOUS:
+            # We get to choose our specific ordering of p, so we can also optimize over the reorderings of p
+            permutation_list = list(itertools.permutations([i for i in range(self.M)]))
+            num_perm = len(permutation_list)
             h_dim = 3
-            self.h = np.zeros((self.N, h_dim))
+            perm_h = np.zeros((num_perm, self.N, h_dim))
             ones = np.ones(self.M*self.num_steps)
-            for i in range(self.N):
-                this_sample = []
-                this_p_index = []
-                this_t_sample = []
-                for k in range(self.M):
-                    this_sample = np.concatenate((this_sample, self.delta_sample[i, k, :]))
-                    this_p_index = np.concatenate((this_p_index, k*np.ones(self.num_steps)))
-                    this_t_sample = np.concatenate((this_t_sample, self.t_sample))
-                this_in = np.column_stack((this_t_sample, this_p_index, ones))
-                # print(this_in.shape)
-                self.h[i], self.total_approx_error = utils.upperbounding_hyperplane(this_in, this_sample)
+            perm_total_approx_error = np.zeros((num_perm, self.N))
+            for permdex in range(num_perm):
+                for i in range(self.N):
+                    this_sample = []
+                    this_p_index = []
+                    this_t_sample = []
+                    for k in range(self.M):
+                        this_sample = np.concatenate((this_sample, self.delta_sample[i, k, :]))
+                        this_p_index = np.concatenate((this_p_index, permutation_list[permdex][k]*np.ones(self.num_steps)))
+                        this_t_sample = np.concatenate((this_t_sample, self.t_sample))
+                    this_in = np.column_stack((this_t_sample, this_p_index, ones))
+                    # print(this_in)
+                    # print(this_in.shape)
+                    perm_h[permdex, i, :], perm_total_approx_error[permdex, i] = utils.upperbounding_hyperplane(this_in, this_sample)
+            perm_sum_approx_error = np.sum(perm_total_approx_error, axis=1)
+            argmin_perm = np.argmin(perm_sum_approx_error)
+            # print(permutation_list)
+            # print(perm_sum_approx_error)
+            # print(perm_h[:, 1, :])
+            self.h = perm_h[argmin_perm, :, :]
+            self.P_perm = permutation_list[argmin_perm]
+            if list(self.P_perm) != [i for i in range(0, self.M)]:
+                self.permute_P()
+            else:
+                self.P_permuted = False
+
 
     def compute_schedule(self):
         if self.h is None:
@@ -342,7 +387,10 @@ class SchedulingProblem:
         self.schedule = []
         for i in range(self.N):
             if self.multimachine:
-                self.schedule.append((s[i].x, pasum(x, i)))
+                if self.p_permuted:
+                    self.schedule.append((s[i].x, self.P_perm.index(pasum(x, i))))
+                else:
+                    self.schedule.append((s[i].x, pasum(x, i)))
             else:
                 self.schedule.append((s[i].x, 0))
 
@@ -358,27 +406,27 @@ class SchedulingProblem:
             self.sample_delta_hat_fun()
 
         fig = go.Figure()
-        if len(self.delta_coeffs.shape) == 1:
+        if len(self.delta_sample.shape) == 1:
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_sample, name=r'$\delta$'))
             fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_bar_sample, name=r'$\bar{\delta}$'))
             fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_hat_sample, name=r'$\hat{\delta}$'))
-        elif len(self.delta_coeffs.shape) == 2:
-            fig = make_subplots(cols=self.delta_coeffs.shape[0], rows=1)
-            for i in range(self.delta_coeffs.shape[0]):
-                fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_sample[i], name=r'$\delta_%i$' % (i+1)), row=1, col=i+1)
-                fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_bar_sample[i], name=r'$\bar{\delta}_%i$' % (i+1)), row=1, col=i+1)
-                fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_hat_sample[i], name=r'$\hat{\delta}_%i$' % (i+1)), row=1, col=i+1)
-        elif len(self.delta_coeffs.shape) == 3:
-            fig = make_subplots(cols=self.delta_coeffs.shape[0], rows=self.delta_coeffs.shape[1])
-            for i in range(self.delta_coeffs.shape[0]):
-                for j in range(self.delta_coeffs.shape[1]):
-                    fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_sample[i, j], name=r'$\delta_{%i,%i$}$' % (i+1, j+1)), row=j+1,
-                                  col=i+1)
+        elif len(self.delta_sample.shape) == 2:
+            fig = make_subplots(rows=self.N, cols=self.M)
+            for i in range(self.delta_sample.shape[0]):
+                fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_sample[i], name=r'$\delta_%i$' % (i+1)), row=i+1, col=1)
+                fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_bar_sample[i], name=r'$\bar{\delta}_%i$' % (i+1)), row=i+1, col=1)
+                fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_hat_sample[i], name=r'$\hat{\delta}_%i$' % (i+1)), row=i+1, col=1)
+        elif len(self.delta_sample.shape) == 3:
+            fig = make_subplots(cols=self.M, rows=self.N)
+            for i in range(self.delta_sample.shape[0]):
+                for j in range(self.delta_sample.shape[1]):
+                    fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_sample[i, j], name=r'$\delta_{%i,%i$}$' % (i+1, j+1)), row=i+1,
+                                  col=j+1)
                     fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_bar_sample[i, j], name=r'$\bar{\delta}_{%i,%i}$' % (i+1, j+1)),
-                                  row=j+1, col=i+1)
+                                  row=i+1, col=j+1)
                     fig.add_trace(go.Scatter(x=self.t_sample, y=self.delta_hat_sample[i, j], name=r'$\hat{\delta}_{%i,%i}$' % (i+1, j+1)),
-                                  row=j+1, col=i+1)
+                                  row=i+1, col=j+1)
         fig.update_layout(
             title="Original and Approximation Completion Time Functions",
             xaxis_title="Start Time",
@@ -394,16 +442,16 @@ class SchedulingProblem:
     def plot_schedule(self):
         fig = go.Figure()
         for i in range(self.N):
-            if len(self.delta_coeffs.shape) == 1:
-                fig.add_bar(x=[self.delta_fun(self.schedule[i][0]) - self.schedule[i][0]],
+            if len(self.delta_sample.shape) == 1:
+                fig.add_bar(x=[self.delta_sample[(np.abs(self.t_sample - self.schedule[i][0]).argmin())] - self.schedule[i][0]],
                             y=[self.schedule[i][1] + 1],
                             base=[self.schedule[i][0]],
                             orientation='h',
                             showlegend=True,
                             name='task %i' % (i+1)
                             )
-            elif len(self.delta_coeffs.shape) == 2:
-                fig.add_bar(x=[self.delta_fun(self.schedule[i][0], i) - self.schedule[i][0]],
+            elif len(self.delta_sample.shape) == 2:
+                fig.add_bar(x=[self.delta_sample[i, (np.abs(self.t_sample - self.schedule[i][0]).argmin())] - self.schedule[i][0]],
                             y=[self.schedule[i][1] + 1],
                             base=[self.schedule[i][0]],
                             orientation='h',
@@ -411,8 +459,8 @@ class SchedulingProblem:
                             name='task %i' % (i+1)
                             )
 
-            elif len(self.delta_coeffs.shape) == 3:
-                fig.add_bar(x=[self.delta_fun(self.schedule[i][0], i, self.schedule[i][1]) - self.schedule[i][0]],
+            elif len(self.delta_sample.shape) == 3:
+                fig.add_bar(x=[self.delta_sample[i, self.schedule[i][1], (np.abs(self.t_sample - self.schedule[i][0])).argmin()] - self.schedule[i][0]],
                     y=[self.schedule[i][1] + 1],
                     base=[self.schedule[i][0]],
                     orientation='h',
@@ -504,14 +552,15 @@ if __name__ == "__main__":
     # problem_nonuniform_prec_homo = SchedulingProblem(problem_type_nonuniform_prec_homo, N, W, delta_coeffs[:, 0, :], A=A, M=3)
     # problem_nonuniform_prec_homo.compute_schedule()
     # problem_nonuniform_prec_homo.plot_schedule()
-    problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
-    problem_uniform = SchedulingProblem(problem_type_uniform, N, W, delta_coeffs=delta_coeffs[0, 0, :])
-    problem_uniform.plot_delta_fun()
-    problem_uniform.compute_schedule()
-    problem_uniform.plot_schedule()
 
-    # problem_type_nonuniform_prec_het = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.PRECEDENCE, MachineType.HETEROGENEOUS)
-    # problem_nonuniform_prec_het = SchedulingProblem(problem_type_nonuniform_prec_het, N, W, delta_coeffs=delta_coeffs, A=A, M=3)
-    # problem_nonuniform_prec_het.plot_delta_fun()
-    # problem_nonuniform_prec_het.compute_schedule()
-    # problem_nonuniform_prec_het.plot_schedule()
+    # problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
+    # problem_uniform = SchedulingProblem(problem_type_uniform, N, W, delta_coeffs=delta_coeffs[0, 0, :])
+    # problem_uniform.plot_delta_fun()
+    # problem_uniform.compute_schedule()
+    # problem_uniform.plot_schedule()
+
+    problem_type_nonuniform_prec_het = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.PRECEDENCE, MachineType.HETEROGENEOUS)
+    problem_nonuniform_prec_het = SchedulingProblem(problem_type_nonuniform_prec_het, N, W, delta_coeffs=delta_coeffs, A=A, M=3)
+    problem_nonuniform_prec_het.plot_delta_fun()
+    problem_nonuniform_prec_het.compute_schedule()
+    problem_nonuniform_prec_het.plot_schedule()
