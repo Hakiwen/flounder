@@ -53,7 +53,9 @@ def upperbounding_hyperplane(A, b):
     # print(x_found)
     return x_found, model.objective_value
 
-def plot_circ_digraph(G):
+def plot_circ_digraph(G=None, A=None):
+    if G is None:
+        G = nx.to_networkx_graph(A, create_using=nx.DiGraph)
     pos = nx.layout.circular_layout(G)
     node_angles = 2 * np.pi * np.linspace(0, 1, G.order(), endpoint=False) + np.pi / 2
     scale = 1

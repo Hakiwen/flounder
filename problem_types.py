@@ -9,10 +9,14 @@ class TaskRelationType(Enum):
     UNRELATED = 1
     PRECEDENCE = 2
 
-class MachineType(Enum):
+class MachineLoadType(Enum):
     SINGLE = 1
-    HOMOGENEOUS = 2
-    HETEROGENEOUS = 3
+    UNIFORM = 2
+    NONUNIFORM = 3
+
+class MachineCapabilityType(Enum):
+    HOMOGENEOUS = 1
+    HETEROGENEOUS = 2
 
 class MachineRelationType(Enum):
     UNRELATED = 1

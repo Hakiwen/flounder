@@ -1,5 +1,5 @@
 import scheduling_problem, utils
-from problem_types import TaskLoadType, TaskRelationType, MachineType, MachineRelationType, DeltaFunctionClass
+from problem_types import TaskLoadType, TaskRelationType, MachineLoadType, MachineCapabilityType, MachineRelationType, DeltaFunctionClass
 
 import numpy as np
 
@@ -59,6 +59,10 @@ def convert_constellation_scheduling(S, A_S, time, D,  BW, gamma, No, P_t, T, A_
         B[edge_list[i][1], S + i] = 1
         B[S + i, edge_list[i][1]] = 1
 
+    # B += np.eye(M)
+    machine_types = np.zeros(M)
+    machine_types[S:] = 1
+
     num_outs = int(np.sum(A_T))
     out_list = []
     for i in range(T):
@@ -66,6 +70,7 @@ def convert_constellation_scheduling(S, A_S, time, D,  BW, gamma, No, P_t, T, A_
             if A_T[i, j] == 1:
                 out_list.append([i, j])
     out_list = np.array(out_list)
+
 
     N = T + num_outs
     A = np.zeros((N, N))
@@ -75,6 +80,8 @@ def convert_constellation_scheduling(S, A_S, time, D,  BW, gamma, No, P_t, T, A_
 
     delta_sample = np.zeros((N, M, num_steps))
 
+    task_types = np.zeros(N)
+    task_types[T:] = 1
 
     for i in range(T):
         delta_sample[i, 0:S, :] = time + proc_time[i]
@@ -104,7 +111,8 @@ def convert_constellation_scheduling(S, A_S, time, D,  BW, gamma, No, P_t, T, A_
 
     problem_type = scheduling_problem.SchedulingProblemType(task_load_type=TaskLoadType.NONUNIFORM,
                                                             task_relation_type=TaskRelationType.PRECEDENCE,
-                                                            machine_type=MachineType.HETEROGENEOUS,
+                                                            machine_load_type=MachineLoadType.NONUNIFORM,
+                                                            machine_capability_type=MachineCapabilityType.HETEROGENEOUS,
                                                             machine_relation_type=MachineRelationType.PRECEDENCE,
                                                             delta_function_class=DeltaFunctionClass.SAMPLED
                                                             )
@@ -116,7 +124,9 @@ def convert_constellation_scheduling(S, A_S, time, D,  BW, gamma, No, P_t, T, A_
                                 A=A,
                                 M=M,
                                 B=B,
-                                t_step=t_step
+                                t_step=t_step,
+                                task_types=task_types,
+                                machine_types=machine_types
                                 )
 
     return problem
@@ -130,8 +140,8 @@ if __name__ == "__main__":
     A_S[1, 0] = 1
     # A_S[2, 0] = 1
 
-    W = 10.0
-    t_step = 0.01
+    W = 1000.0
+    t_step = 1
     # due to the way python handles this, the t_step can't be a non-float
     num_steps = int(W/t_step)
     time = np.linspace(0, W, num_steps)
@@ -165,6 +175,6 @@ if __name__ == "__main__":
     print(D)
 
     problem = convert_constellation_scheduling(S, A_S, time, D, BW, gamma, No, P_t, T, A_T, proc_time, out_size)
-    problem.compute_schedule()
     problem.plot_delta_fun()
+    problem.compute_schedule()
     problem.plot_schedule()
