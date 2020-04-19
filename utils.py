@@ -17,7 +17,7 @@ import networkx as nx
 def sample_generic_fun(fun, sample_basis, dim_sample):
     ones_basis = np.ones(len(sample_basis), dtype=np.int)
     ret = np.zeros(dim_sample)
-    if len(dim_sample) == 1:
+    if isinstance(dim_sample, int):
         ret = np.array(list(map(fun, sample_basis)))
     elif len(dim_sample) == 2:
         for i in range(dim_sample[0]):
@@ -49,6 +49,73 @@ def upperbounding_hyperplane(A, b):
     model.objective = total_error
     model.optimize()
 #     x_found = np.zeros(N)
+    x_found = np.array([x[i].x for i in range(N)])
+    # print(x_found)
+    return x_found, model.objective_value
+
+# TODO: Consider reworking to produce a bar strictly less than hat
+# t is a vector of the time samples, common for all rows of B
+# B is the samples, b_ij = the jth sample for the ith machine
+# returns (h_1, vector of h_2)
+def het_qp(t, B):
+    t = np.array(t)
+    B = np.array(B)
+    n = t.shape[0]
+    m = B.shape[0]
+    assert(B.shape[1] == n)
+
+    model = mip.Model(solver_name=mip.CBC)
+    e = [[model.add_var(name='e({},{})'.format(i+1, j+1)) for j in range(n)]for i in range(m)]
+    h_1 = model.add_var(name='h_1')
+    h_2 = [model.add_var(name='h_2({})'.format(i + 1)) for i in range(m)]
+    # total_error = model.add_var(name='e_sum')
+    total_error = 0
+    for i in range(m):
+        for j in range(n):
+            if B[i][j] <= t[-1]:
+                e[i][j] = t[j]*h_1 + h_2[i] - B[i][j]
+                model += e[i][j] >= 0
+                total_error = total_error + e[i][j]
+
+    model.objective = total_error
+    model.optimize()
+    h1_found = h_1.x
+    h2_found = np.array([h_2[i].x for i in range(m)])
+
+    return h1_found, h2_found
+
+def qp_1(A, b, d, H):
+    A = np.array(A)
+    b = np.array(b)
+    d = np.array(d)
+    N = A.shape[1]
+    M = A.shape[0]
+    assert(b.shape[0] == M)
+
+    # print(N)
+    # print(M)
+    model = mip.Model(solver_name=mip.CBC)
+    e = [model.add_var(name='e({})'.format(i+1)) for i in range(M)]
+    x = [model.add_var(name='x({})'.format(i+1)) for i in range(N)]
+    #     e = A*x - b
+    for i in range(M):
+        e[i] = -1*b[i]
+        for j in range(N):
+            e[i] = e[i] + A[i, j]*x[j]
+        model += e[i] >= 0
+
+    # if N == 2:
+    #     model += H*x[0] + x[1] == H + d
+    #     model += x[1] >= b[0]
+    #     model += x[0] >= 1
+    # elif N == 3:
+
+    # TODO: introduce less than WCPT for multimachine cases
+
+    total_error = mip.xsum(e[i] for i in range(M))
+    model.objective = total_error
+    model.optimize()
+    #     x_found = np.zeros(N)
     x_found = np.array([x[i].x for i in range(N)])
     # print(x_found)
     return x_found, model.objective_value
