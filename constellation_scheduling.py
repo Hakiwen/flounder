@@ -127,8 +127,8 @@ def convert_constellation_scheduling(S, A_S, time, D,  BW, gamma, PNR, T, A_T, p
                                 B=B,
                                 t_sample=time,
                                 task_types=task_types,
-                                machine_types=machine_types
-                                )
+                                machine_types=machine_types,
+                                het_method_hyperplane=2)
 
     return problem
 

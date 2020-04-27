@@ -214,57 +214,42 @@ class SchedulingProblem:
     def delta_hat_fun_3D(self, t, i, k):
         return t + self.d[i, k]
 
+    def find_approximation_window(self, delta_sample):
+        ds_index = (delta_sample <= self.H)
+        ds = delta_sample[ds_index]
+        ts = self.t_sample[ds_index]
+        return ds, ts
+
     def find_WCPT(self):
         bounds = optimize.Bounds([0], [self.W])
         self.d = -1
-        if self.problem_type.delta_function_class == DeltaFunctionClass.LINESIN:
-            if self.delta_sample is None:
-                self.sample_delta_fun()
-            if len(self.delta_sample.shape) == 1:
-                self.d = np.max(self.delta_sample - self.t_sample)
-            elif len(self.delta_sample.shape) == 2:
-                # self.d = np.zeros((self.delta_sample.shape[0]))
-                for i in range(self.delta_sample.shape[0]):
-                    self.d[i] = np.max(self.delta_sample[i, :] - self.t_sample)
-            elif len(self.delta_sample.shape) == 3:
-                self.d = np.zeros((self.delta_sample.shape[0], self.delta_sample.shape[1]))
-                for i in range(self.delta_sample.shape[0]):
-                    for j in range(self.delta_sample.shape[1]):
-                        self.d[i, j] = np.max(self.delta_sample[i, j, :] - self.t_sample)
-            # if len(self.delta_coeffs.shape) == 1:
-            #     d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t), x0=[self.W], bounds=bounds)
-            #     self.d = -1*d_optimize_result.fun[0]
-            # elif len(self.delta_coeffs.shape) == 2:
-            #     self.d = np.zeros((self.delta_coeffs.shape[0]))
-            #     for i in range(self.delta_coeffs.shape[0]):
-            #         d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t, i), [self.W], bounds=bounds)
-            #         self.d[i] = -1*d_optimize_result.fun[0]
-            # elif len(self.delta_coeffs.shape) == 3:
-            #     self.d = np.zeros((self.delta_coeffs.shape[0], self.delta_coeffs.shape[1]))
-            #     for i in range(self.delta_coeffs.shape[0]):
-            #         for j in range(self.delta_coeffs.shape[1]):
-            #             d_optimize_result = optimize.minimize(lambda t: t - self.delta_fun(t, i, j), [self.W], bounds=bounds)
-            #             self.d[i, j] = -1*d_optimize_result.fun[0]
-        elif self.problem_type.delta_function_class == DeltaFunctionClass.SAMPLED:
-            if len(self.delta_sample.shape) == 1:
-                self.d = np.max(self.delta_sample - self.t_sample)
-            elif len(self.delta_sample.shape) == 2:
-                self.d = np.zeros((self.delta_sample.shape[0]))
-                for i in range(self.delta_sample.shape[0]):
-                    self.d[i] = np.max(self.delta_sample[i, :] - self.t_sample)
-            elif len(self.delta_sample.shape) == 3:
-                self.d = np.zeros((self.delta_sample.shape[0], self.delta_sample.shape[1]))
-                for i in range(self.delta_sample.shape[0]):
-                    for j in range(self.delta_sample.shape[1]):
-                        ds = self.delta_sample[i, j, :]
-                        ds_index = (ds <= self.H)
-                        ds = ds[ds_index]
-                        ts = self.t_sample[ds_index]
-                        if ds.shape[0] > 0:
-                            self.d[i, j] = np.max(ds - ts)
-                        else:
-                            # make WCPT greater than H if there exists no delta sample less than H
-                            self.d[i, j] = self.H + 1
+        if self.delta_sample is None:
+            self.sample_delta_fun()
+        if len(self.delta_sample.shape) == 1:
+            ds, ts = self.find_approximation_window(self.delta_sample)
+            if ds.shape[0] > 0:
+                self.d = np.max(ds - ts)
+            else:
+                self.d = self.H + 1
+
+        elif len(self.delta_sample.shape) == 2:
+            self.d = np.zeros((self.delta_sample.shape[0]))
+            for i in range(self.delta_sample.shape[0]):
+                ds, ts = self.find_approximation_window(self.delta_sample[i, :])
+                if ds.shape[0] > 0:
+                    self.d[i] = np.max(ds - ts)
+                else:
+                    self.d[i] = self.H + 1
+        elif len(self.delta_sample.shape) == 3:
+            self.d = np.zeros((self.delta_sample.shape[0], self.delta_sample.shape[1]))
+            for i in range(self.delta_sample.shape[0]):
+                for j in range(self.delta_sample.shape[1]):
+                    ds, ts = self.find_approximation_window(self.delta_sample[i, j, :])
+                    if ds.shape[0] > 0:
+                        self.d[i, j] = np.max(ds - ts)
+                    else:
+                        # make WCPT greater than H if there exists no delta sample less than H
+                        self.d[i, j] = self.H + 1
 
     def sample_delta_fun(self):
         self.delta_sample = utils.sample_generic_fun(self.delta_fun, self.t_sample, self.sample_dim)
@@ -356,6 +341,8 @@ class SchedulingProblem:
 
         self.p_permuted = True
 
+
+
     # Algorithm 1 and qp
     def approximate_delta(self):
         if self.delta_sample is None:
@@ -370,20 +357,24 @@ class SchedulingProblem:
             # t_sample
             if self.problem_type.task_load_type == TaskLoadType.NONUNIFORM:
                 self.h = np.zeros((self.N, h_dim))
+                self.total_approx_error = np.zeros(self.h.shape[:-1])
                 for i in range(self.N):
                     # We append the sample of the WCPT intercept at H
-                    this_sample = np.append(self.delta_sample[i, :], self.H + self.d[i])
+                    ds, ts = self.find_approximation_window(self.delta_sample[i, :])
+                    this_sample = np.append(ds, ts[-1] + self.d[i])
+
                     ones = np.ones(this_sample.shape)
-                    this_time = np.append(self.t_sample, self.H)
+                    this_time = np.append(ts, ts[-1])
                     this_in = np.column_stack((this_time, ones))
-                    self.h[i], self.total_approx_error = utils.qp_1(this_in, this_sample)
+                    self.h[i], self.total_approx_error[i] = utils.upperbounding_hyperplane(this_in, this_sample)
                     # self.h[i], self.total_approx_error = utils.qp_1(this_in, this_sample, self.d[i], self.W)
 
             elif self.problem_type.task_load_type == TaskLoadType.UNIFORM:
                 self.h = np.zeros(h_dim)
-                this_sample = np.append(self.delta_sample, self.d + self.H)
+                ds, ts = self.find_approximation_window(self.delta_sample)
+                this_sample = np.append(ds, ts[-1] + self.d)
                 ones = np.ones(this_sample.shape)
-                this_time = np.append(self.t_sample, self.H)
+                this_time = np.append(ts, ts[-1])
                 this_in = np.column_stack((this_time, ones))
                 # this_in = this_in.transpose()
                 self.h, self.total_approx_error = utils.upperbounding_hyperplane(this_in, this_sample)
@@ -537,8 +528,8 @@ class SchedulingProblem:
                             ds_index = (ds <= self.H)
                             ds = ds[ds_index]
                             ts = self.t_sample[ds_index]
-                            this_sample = np.append(ds, self.H + self.d[i, j])
-                            this_time = np.append(ts, self.H)
+                            this_sample = np.append(ds, ts[-1] + self.d[i, j])
+                            this_time = np.append(ts, ts[-1])
                             ones = np.ones(this_time.shape[0])
                             this_in = np.column_stack((this_time, ones))
                             self.h[i, j, :], approx_error = utils.upperbounding_hyperplane(this_in, this_sample)
@@ -723,7 +714,6 @@ class SchedulingProblem:
                         sample = self.delta_sample[i][t]
                     self.delta_rect[i][t] = self.t_step * np.ceil(sample / self.t_step )
 
-
         # overall assignment variable
 
         if self.multimachine:
@@ -739,11 +729,8 @@ class SchedulingProblem:
         s = [model.add_var(name='s({})'.format(i+1)) for i in range(self.N)]
         C = [model.add_var(name='C({})'.format(i+1)) for i in range(self.N)]
 
-
-
         sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(self.N)]
                  for j in range(self.N)]
-
 
         if self.multimachine:
             p = [model.add_var(var_type=mip.INTEGER, name='p({})'.format(i + 1)) for i in range(self.N)]
@@ -821,16 +808,6 @@ class SchedulingProblem:
                 s[i] = start_sum
                 model += single_assign == 1
 
-            # Single assign constraint
-
-            # if len(self.delta_sample.shape) == 1:
-            #     C[i] = self.h[0]*s[i] + self.h[1]
-            # elif len(self.delta_sample.shape) == 2:
-            #     C[i] = self.h[i, 0]*s[i] + self.h[i, 1]
-            #
-            # elif len(self.delta_sample.shape) == 3:
-            #     C[i] = self.h[i, 0]*s[i] + self.h[i, 1]*p[i] + self.h[i, 2]
-
         if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
             for i in range(self.N):
                 for j in range(self.M):
@@ -873,41 +850,34 @@ class SchedulingProblem:
             self.exact_objective = -1
             return False
 
+        def stsum(g, i):
+            ret = 0
+            if self.multimachine:
+                for j in range(self.M):
+                    for t in range(self.num_steps):
+                       ret += g[i][j][t].x*t*self.t_step
+            else:
+                for t in range(self.num_steps):
+                    ret += g[i][t].x*t*self.t_step
+            return ret
+
+        def pasum(g, i):
+            ret = 0
+            for j in range(self.M):
+                for t in range(self.num_steps):
+                    ret += g[i][j][t].x*j
+            return ret
+
         self.exact_objective = model.objective_value
-        # print(self.objective)
 
-        # def pasum(x, i):
-        #     pasum = 0
-        #     for k in range(self.M):
-        #         pasum += x[i][k].x * k
-        #     return pasum
-        #
-        # if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-        #     # unpermute
-        #     pasum_series = np.zeros(self.N)
-        #     for o in range(self.N):
-        #         pasum_series[o] = pasum(x, i)
-        #     schedule_series = pasum_series.copy()
-        #     big_permute = []
-        #     for u in range(self.num_types):
-        #         big_permute = np.concatenate((big_permute, np.array(self.P_perm[u])))
-        #
-        # self.schedule = []
-        #
-        # for i in range(self.N):
-        #     if self.multimachine:
-        #         if self.p_permuted:
-        #             if self.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
-        #                 self.schedule.append((s[i].x, self.P_perm.index(pasum(x, i))))
-        #             elif self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-        #                 self.schedule.append((s[i].x, np.where(big_permute == pasum(x, i))[0][0]))
-        #         else:
-        #             self.schedule.append((s[i].x, pasum(x, i)))
-        #     else:
-        #         self.schedule.append((s[i].x, 0))
+        self.exact_schedule = []
 
-        # print("Schedule")
-        # print(self.schedule)
+        for i in range(self.N):
+            if self.multimachine:
+                    self.exact_schedule.append((stsum(g, i), pasum(g, i)))
+            else:
+                self.exact_schedule.append((stsum(g, i), 0))
+
     def compute_schedule(self):
         if self.h is None:
             self.approximate_delta()
@@ -1098,7 +1068,7 @@ class SchedulingProblem:
         W_min_actual = []
         schedule_actual = []
         for p_index in range(len(p_actual)):
-            # print(p_actual[p_index])
+            print(p_actual[p_index])
             p_res = self.restricted_p_compute_schedule(p_actual[p_index],
                                                        epsilon_actual[p_index],
                                                        x_actual[p_index]
@@ -1116,26 +1086,12 @@ class SchedulingProblem:
 
     def restricted_p_compute_schedule(self, p, epsilon, x):
 
-        # if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-        #     self.U = np.zeros((self.N, self.M))
-        #     for i in range(self.N):
-        #         for j in range(self.M):
-        #             if self.task_types[i] == self.machine_types[j]:
-        #                 self.U[i, j] = 1
 
         model = mip.Model(solver_name=mip.CBC)
         s = [model.add_var(name='s({})'.format(i+1)) for i in range(self.N)]
         C = [model.add_var(name='C({})'.format(i+1)) for i in range(self.N)]
         sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(self.N)]
                  for j in range(self.N)]
-        # if self.multimachine:
-        #     p = [model.add_var(var_type=mip.INTEGER, name='p({})'.format(i + 1)) for i in range(self.N)]
-        #     x = [[model.add_var(var_type=mip.BINARY, name='x({},{}'.format(i + 1, k + 1)) for k in range(self.M)]
-        #          for i in range(self.N)]
-        #     epsilon = [
-        #         [model.add_var(var_type=mip.BINARY, name='epsilon({},{})'.format(i + 1, j + 1)) for i in range(self.N)]
-        #         for j in range(self.N)]
-        #     proc_assign_sum = {}
 
         if self.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
             gamma = [
@@ -1155,34 +1111,8 @@ class SchedulingProblem:
         for i in range(self.N):
             model += s[i] >= 0
             model += C[i] <= self.W
-            # if self.multimachine:
-            #     model += p[i] >= 0
-            #     model += p[i] <= self.M - 1
-            #     p[i] = 0
-            #     proc_assign_sum[i] = 0
-            #     for k in range(self.M):
-            #         p[i] = p[i] + k*x[i][k]
-            #         proc_assign_sum[i] = proc_assign_sum[i] + x[i][k]
-            #     model += proc_assign_sum[i] == 1
-
-            # if self.problem_type.delta_function_class == DeltaFunctionClass.LINESIN:
-            # if len(self.delta_sample.shape) == 1:
-            #     C[i] = self.h[0]*s[i] + self.h[1]
-            # elif len(self.delta_sample.shape) == 2:
-            #     C[i] = self.h[i, 0]*s[i] + self.h[i, 1]
             # # TODO:  change to check for specifically het machines vs het tasks, the above is only valid for tasks
-            # elif len(self.delta_sample.shape) == 3:
-            #     if self.het_method_hyperplane:
-            #         C[i] = self.h[i, 0]*s[i] + self.h[i, 1]*p[i] + self.h[i, 2]
-            #     else:
-            #         C[i] = self.h_1[i]*s[i]
-            #         for k in range(self.M):
-            #             C[i] = C[i] + x[i][k]*self.h_2[i, k]
             C[i] = self.h[i, p[i], 0]*s[i] + self.h[i, p[i], 1]
-        # if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-        #     for i in range(self.N):
-        #         for j in range(self.M):
-        #             model += x[i][j] <= self.U[i][j]
 
         z = model.add_var(name='z')
         for i in range(self.N):
@@ -1223,36 +1153,10 @@ class SchedulingProblem:
             return objective, None
         else:
             objective = model.objective_value
-        # print(self.objective)
-
-        # def pasum(x, i):
-        #     pasum = 0
-        #     for k in range(self.M):
-        #         pasum += x[i][k].x * k
-        #     return pasum
-
-        # if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS and self.p_permuted:
-        #     unpermute
-            # pasum_series = np.zeros(self.N)
-            # for o in range(self.N):
-            #     pasum_series[o] = pasum(x, i)
-            # schedule_series = pasum_series.copy()
-            # big_permute = []
-            # for u in range(self.num_types):
-            #     big_permute = np.concatenate((big_permute, np.array(self.P_perm[u])))
 
         schedule = []
 
         for i in range(self.N):
-            # if self.multimachine:
-            #     if self.p_permuted:
-            #         if self.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
-            #             self.schedule.append((s[i].x, self.P_perm.index(pasum(x, i))))
-            #         elif self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-            #             self.schedule.append((s[i].x, np.where(big_permute == pasum(x, i))[0][0]))
-            #     else:
-            #         self.schedule.append((s[i].x, pasum(x, i)))
-            # else:
             schedule.append((s[i].x, p[i]))
 
         return objective, schedule
@@ -1329,8 +1233,8 @@ class SchedulingProblem:
             # title="Original and Approximation Completion Time Functions"
             # xaxis_title="Start Time",
             xaxis_title=r"$t$"
-            # height=1080,
-            # width=1920
+            # height=720*self.N,
+            # width=1280*self.M
         )
         if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
             if self.num_types == 2:
@@ -1359,58 +1263,66 @@ class SchedulingProblem:
     def plot_prec_graph(self):
         utils.plot_circ_digraph(self.G)
 
-    def plot_schedule(self):
+    def plot_schedule(self, schedule_to_plot):
         fig = go.Figure()
         for i in range(self.N):
             if len(self.delta_sample.shape) == 1:
-                fig.add_bar(x=[self.delta_sample[(np.abs(self.t_sample - self.schedule[i][0]).argmin())] - self.schedule[i][0]],
-                            y=[self.schedule[i][1] + 1],
-                            base=[self.schedule[i][0]],
+                fig.add_bar(x=[self.delta_sample[(np.abs(self.t_sample - schedule_to_plot[i][0]).argmin())] - schedule_to_plot[i][0]],
+                            # y=[schedule_to_plot[i][1] + 1],
+                            # y=[[schedule_to_plot[i][1] + 1], [schedule_to_plot[i][1] + 1]],
+                            y=[['Machine %i ' % (schedule_to_plot[i][1] + 1)], ['Task %i' % (i + 1)]],
+                            base=[schedule_to_plot[i][0]],
                             orientation='h',
                             showlegend=True,
-                            name='task %i' % (i+1)
+                            name='Task %i' % (i+1)
                             )
             elif len(self.delta_sample.shape) == 2:
-                fig.add_bar(x=[self.delta_sample[i, (np.abs(self.t_sample - self.schedule[i][0]).argmin())] - self.schedule[i][0]],
-                            y=[self.schedule[i][1] + 1],
-                            base=[self.schedule[i][0]],
+                fig.add_bar(x=[self.delta_sample[i, (np.abs(self.t_sample - schedule_to_plot[i][0]).argmin())] - schedule_to_plot[i][0]],
+                            # y=[[schedule_to_plot[i][1] + 1], [schedule_to_plot[i][1] + 1]],
+                            y=[['Machine %i ' % (schedule_to_plot[i][1] + 1)], ['Task %i' % (i + 1)]],
+                            base=[schedule_to_plot[i][0]],
                             orientation='h',
-                            showlegend=True,
-                            name='task %i' % (i+1)
+                            # showlegend=True,
+                            name='Task %i' % (i+1)
                             )
 
             elif len(self.delta_sample.shape) == 3:
-                fig.add_bar(x=[self.delta_sample[i, self.schedule[i][1], (np.abs(self.t_sample - self.schedule[i][0])).argmin()] - self.schedule[i][0]],
-                    y=[self.schedule[i][1] + 1],
-                    base=[self.schedule[i][0]],
+                fig.add_bar(x=[self.delta_sample[i, schedule_to_plot[i][1], (np.abs(self.t_sample - schedule_to_plot[i][0])).argmin()] - schedule_to_plot[i][0]],
+                    # y=[schedule_to_plot[i][1] + 1],
+                    # y=[[schedule_to_plot[i][1] + 1], [schedule_to_plot[i][1] + 1]],
+                    y=[['Machine %i ' % (schedule_to_plot[i][1] + 1)], ['Task %i' % (i + 1)]],
+                    base=[schedule_to_plot[i][0]],
                     orientation='h',
                     showlegend=True,
-                    name='task %i' % (i+1)
+                    name='Task %i' % (i+1)
                     )
         fig.update_layout(
-            barmode='stack',
+            # barmode='stack',
             xaxis=dict(
                 # autorange=True,
                 showgrid=False
+                # range=[0, self.W]
             ),
             yaxis=dict(
                 # autorange=True,
                 showgrid=False,
                 tickformat=',d'
+                # showticklabels=False
             ),
             title="Schedule",
             xaxis_title="Time",
             yaxis_title="Machine",
+            showlegend=False,
             # displymodebar=False
-            height=1080,
-            width=1920
-            # margin=dict(
-            #     l=50,
-            #     r=50,
-            #     b=100,
-            #     t=100,
-            #     pad=4
-            # )
+            # height=1080,
+            # width=1920,
+            margin=dict(
+                l=0,
+                r=50,
+                b=100,
+                t=100,
+                pad=4
+            )
         )
         # fig.update_yaxes(range=[0, self.M + 1])
         # fig.update_xaxes(range=[0, self.W])
@@ -1475,10 +1387,10 @@ if __name__ == "__main__":
     #
     # for i in range(num_N):
     #     for j in range(len(W_l)):
-    #         problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
-    #         problem_uniform = SchedulingProblem(problem_type_uniform, N=i, W=W_l[j], delta_coeffs=np.array([1.05, 1.0, np.pi/2]))
+    problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
+    problem_uniform = SchedulingProblem(problem_type_uniform, N=N, W=W, delta_coeffs=np.array([1.05, 1.0, np.pi/2]))
     # problem_uniform.plot_delta_fun()
-            # problem_uniform.compute_schedule()
+    problem_uniform.compute_schedule()
     # problem_uniform.plot_schedule()
             # problem_uniform.WCPT_compute_schedule()
             # if problem_uniform.WCPT_schedule is not None:
@@ -1525,9 +1437,9 @@ if __name__ == "__main__":
     # problem_nonuniform_prec_het.compute_schedule()
     # problem_nonuniform_prec_het.plot_schedule()
 
-    problem_type_nonuniform_prec_nonuniform_prec_het = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.UNRELATED, MachineLoadType.NONUNIFORM, MachineCapabilityType.HETEROGENEOUS)
-    problem_nonuniform_prec_nonuniform_prec_het = SchedulingProblem(problem_type_nonuniform_prec_nonuniform_prec_het, N=N, W=W, delta_coeffs=delta_coeffs, M=M, task_types=task_types, machine_types=machine_types)
-    problem_nonuniform_prec_nonuniform_prec_het.plot_delta_fun()
+    # problem_type_nonuniform_prec_nonuniform_prec_het = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.UNRELATED, MachineLoadType.NONUNIFORM, MachineCapabilityType.HETEROGENEOUS)
+    # problem_nonuniform_prec_nonuniform_prec_het = SchedulingProblem(problem_type_nonuniform_prec_nonuniform_prec_het, N=N, W=W, delta_coeffs=delta_coeffs, M=M, task_types=task_types, machine_types=machine_types)
+    # problem_nonuniform_prec_nonuniform_prec_het.plot_delta_fun()
     # problem_nonuniform_prec_nonuniform_prec_het.compute_schedule()
     # problem_nonuniform_prec_nonuniform_prec_het.WCPT_compute_schedule()
 
