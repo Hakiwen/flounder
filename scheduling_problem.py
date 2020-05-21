@@ -345,6 +345,7 @@ class SchedulingProblem:
 
     # Algorithm 1 and qp
     def approximate_delta(self):
+
         if self.delta_sample is None:
             self.sample_delta_fun()
 
@@ -1371,77 +1372,35 @@ if __name__ == "__main__":
     # B[2, 0] = 1
 
     num_types = 2
-    # 0 is proc task
+    # 0 is proc taskm
     # 1 is comm task
     task_types = [0, 1, 0, 1, 0]
     machine_types = [0, 1, 0]
 
+    #### TEST CASES ####
 
-    # num_N = 4
-    # W_max = 4*np.pi
-    # num_W = 10
-    # W_step = W_max/float(num_W)
-    # hat_W_min = np.zeros((num_N, num_W))
-    # bar_W_min = np.zeros((num_N, num_W))
-    # W_l = np.linspace(W_step, W_max, num_W)
-    #
-    # for i in range(num_N):
-    #     for j in range(len(W_l)):
-    problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
-    problem_uniform = SchedulingProblem(problem_type_uniform, N=N, W=W, delta_coeffs=np.array([1.05, 1.0, np.pi/2]))
-    # problem_uniform.plot_delta_fun()
-    problem_uniform.compute_schedule()
-    # problem_uniform.plot_schedule()
-            # problem_uniform.WCPT_compute_schedule()
-            # if problem_uniform.WCPT_schedule is not None:
-            #     if len(problem_uniform.WCPT_schedule) > 0:
-            #         hat_W_min[i, j] = problem_uniform.WCPT_schedule[-1][0]
-            # else:
-            #     hat_W_min[i, j] = -1
-            #
-            # if problem_uniform.schedule is not None:
-            #     if len(problem_uniform.schedule) > 0:
-            #         bar_W_min[i, j] = problem_uniform.schedule[-1][0]
-            # else:
-            #     bar_W_min[i, j] = -1
-    #
-    # print(hat_W_min)
-    # print(bar_W_min)
+    # Base Problem Class (00000)
 
-    # problem_type_nonuniform = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.UNRELATED)
-    # problem_nonuniform = SchedulingProblem(problem_type_nonuniform, N=N, W=W, delta_coeffs=delta_coeffs[:, 0, :])
-    # problem_nonuniform.plot_delta_fun()
-    # problem_nonuniform.compute_schedule()
-    # problem_nonuniform.plot_schedule()
-    #
-    # problem_type_nonuniform_prec = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.PRECEDENCE)
-    # problem_nonuniform_prec = SchedulingProblem(problem_type_nonuniform_prec, N, W, delta_coeffs[:, 0, :],A=A)
-    # problem_nonuniform_prec.plot_prec_graph()
-    # problem_nonuniform_prec.compute_schedule()
-    # problem_nonuniform_prec.plot_schedule()
-    #
-    # problem_type_nonuniform_prec_homo = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.PRECEDENCE, MachineLoadType.UNIFORM)
-    # problem_nonuniform_prec_homo = SchedulingProblem(problem_type_nonuniform_prec_homo, N, W, delta_coeffs[:, 0, :], A=A, M=3)
-    # problem_nonuniform_prec_homo.compute_schedule()
-    # problem_nonuniform_prec_homo.plot_schedule()
 
-    # problem_type_uniform = SchedulingProblemType(TaskLoadType.UNIFORM, TaskRelationType.UNRELATED)
-    # problem_uniform = SchedulingProblem(problem_type_uniform, N, W, delta_coeffs=delta_coeffs[0, 0, :])
-    # problem_uniform.plot_delta_fun()
-    # problem_uniform.compute_schedule()
-    # problem_uniform.plot_schedule()
+    # Nonuniform Tasks (00001)
 
-    # problem_type_nonuniform_prec_het = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.UNRELATED, MachineLoadType.NONUNIFORM, MachineCapabilityType.HOMOGENEOUS)
-    # problem_nonuniform_prec_het = SchedulingProblem(problem_type_nonuniform_prec_het, N=N, W=W, delta_coeffs=delta_coeffs[:N, :M, :], M=M)
-    # problem_nonuniform_prec_het.plot_delta_fun()
-    # problem_nonuniform_prec_het.compute_schedule()
-    # problem_nonuniform_prec_het.plot_schedule()
 
-    # problem_type_nonuniform_prec_nonuniform_prec_het = SchedulingProblemType(TaskLoadType.NONUNIFORM, TaskRelationType.UNRELATED, MachineLoadType.NONUNIFORM, MachineCapabilityType.HETEROGENEOUS)
-    # problem_nonuniform_prec_nonuniform_prec_het = SchedulingProblem(problem_type_nonuniform_prec_nonuniform_prec_het, N=N, W=W, delta_coeffs=delta_coeffs, M=M, task_types=task_types, machine_types=machine_types)
-    # problem_nonuniform_prec_nonuniform_prec_het.plot_delta_fun()
-    # problem_nonuniform_prec_nonuniform_prec_het.compute_schedule()
-    # problem_nonuniform_prec_nonuniform_prec_het.WCPT_compute_schedule()
+    # Precedence w/ Nonuniform (00011)
 
-    # problem_nonuniform_prec_nonuniform_prec_het.plot_schedule()
+    # Uniform tasks and mm (00100)
+
+    # nonuniform tasks and mm (00101) check all 3 het methods
+
+    # nonuniform, prec tasks and mm (00111)
+
+    # Nonuniform machines (00200)
+
+    # Nonuniform machines and tasks (00201)
+
+    # Het nonuniform machines (01200)
+
+    # Problem type for case study (11211)
+
+
+
     print('term')
