@@ -1,5 +1,6 @@
 import utils
 from problem_types import TaskLoadType, TaskRelationType, MachineLoadType, MachineCapabilityType, MachineRelationType, DeltaFunctionClass
+from enum import Enum
 
 import numpy as np
 
