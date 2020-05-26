@@ -39,20 +39,24 @@ class MachineRelationType(Enum):
 
 
 # fun = pointer to fun e.g. delta_hat_fun_1D
+# params = defining parameters of function, i.e. d for WCPT
 # sample_basis = what to sample against in last dimension
 # dim_sample = Dimension of sample in tuple, e.g. (N,M,num_steps)
-def sample_generic_fun(fun, sample_basis, dim_sample):
-    ones_basis = np.ones(len(sample_basis), dtype=np.int)
+def sample_generic_fun(fun, params, sample_basis, dim_sample):
+    basis_len = len(sample_basis)
+    ones_basis = np.ones(basis_len, dtype=np.int)
+    params_list = list(itertools.repeat(params,basis_len))
     ret = np.zeros(dim_sample)
+
     if isinstance(dim_sample, int):
-        ret = np.array(list(map(fun, sample_basis)))
+        ret = np.array(list(map(fun, params_list, sample_basis)))
     elif len(dim_sample) == 2:
         for i in range(dim_sample[0]):
-            ret[i, :] = list(map(fun, sample_basis, i * ones_basis))
+            ret[i, :] = list(map(fun, params_list, sample_basis, i * ones_basis))
     elif len(dim_sample) == 3:
         for i in range(dim_sample[0]):
             for j in range(dim_sample[1]):
-                ret[i, j, :] = list(map(fun, sample_basis, i * ones_basis, j * ones_basis))
+                ret[i, j, :] = list(map(fun, params_list, sample_basis, i * ones_basis, j * ones_basis))
     return ret
 
 # X \in R^MxN, returns hyper x \in R^N
@@ -68,6 +72,7 @@ def upperbounding_hyperplane(A, b):
     # print(N)
     # print(M)
     model = mip.Model(solver_name=mip.CBC)
+    model.verbose = 0
     e = [model.add_var(name='e({})'.format(i+1)) for i in range(M)]
     x = [model.add_var(name='x({})'.format(i+1)) for i in range(N)]
 #     e = A*x - b
@@ -95,6 +100,7 @@ def het_qp(t, B):
     assert(B.shape[1] == n)
 
     model = mip.Model(solver_name=mip.CBC)
+    model.verbose = 0
     e = [[model.add_var(name='e({},{})'.format(i+1, j+1)) for j in range(n)]for i in range(m)]
     h_1 = model.add_var(name='h_1')
     h_2 = [model.add_var(name='h_2({})'.format(i + 1)) for i in range(m)]
@@ -124,6 +130,15 @@ def calculate_p_vars(p_vec, N, M):
                 epsilon[i][j] = 1
         x[i][p_vec[i]] = 1
     return epsilon, x
+
+# TODO: Insert this into the permute_P function
+def permute_B(B, permutation):
+    M = B.shape[0]
+    new_B = np.zeros(B.shape)
+    for i in range(M):
+        for j in range(M):
+            new_B[i, j] = B[permutation[i], permutation[j]]
+    return new_B
 
 
 def plot_circ_digraph(G=None, A=None):
@@ -197,6 +212,233 @@ def plot_circ_digraph(G=None, A=None):
 # In reference and display, first index of tasks and machines is 1
 
 
+def delta_bar_fun_ut(h, t):
+    return h[0]*t + h[1]
+
+def delta_bar_fun_nut(h, t, i):
+    return h[i, 0]*t + h[i, 1]
+
+# def delta_bar_fun_2D(h, t, i):
+#     return h[i, 0]*t + h[i, 1]
+
+def delta_bar_fun_num_0(h, t, i, j):
+    return h[i, 0]*t + h[i, 1]*j + h[i, 2]
+
+def delta_bar_fun_num_1(h_1, h_2, t, i, j):
+    return h_1[i]*t + h_2[i, j]
+
+def delta_bar_fun_num_2(h, t, i, j):
+    return h[i, j, 0]*t + h[i, j, 1]
+
+def delta_hat_fun_1D(d, t):
+    return t + d
+
+def delta_hat_fun_2D(d, t, i):
+    return t + d[i]
+
+def delta_hat_fun_3D(d, t, i, k):
+    return t + d[i, k]
+
+def find_approximation_window(delta_sample, t_sample, H):
+    ds_index = (delta_sample <= H)
+    ds = delta_sample[ds_index]
+    ts = t_sample[ds_index]
+    return ds, ts
+
+
+def find_WCPT(delta_sample, t_sample, H):
+    d = -1
+    if len(delta_sample.shape) == 1:
+        ds, ts = find_approximation_window(delta_sample, t_sample, H)
+        if ds.shape[0] > 0:
+            d = np.max(ds - ts)
+        else:
+            d = H + 1
+
+    elif len(delta_sample.shape) == 2:
+        d = np.zeros((delta_sample.shape[0]))
+        for i in range(delta_sample.shape[0]):
+            ds, ts = find_approximation_window(delta_sample[i, :], t_sample, H)
+            if ds.shape[0] > 0:
+                d[i] = np.max(ds - ts)
+            else:
+                d[i] = H + 1
+    elif len(delta_sample.shape) == 3:
+        d = np.zeros((delta_sample.shape[0], delta_sample.shape[1]))
+        for i in range(delta_sample.shape[0]):
+            for j in range(delta_sample.shape[1]):
+                ds, ts = find_approximation_window(delta_sample[i, j, :], t_sample, H)
+                if ds.shape[0] > 0:
+                    d[i, j] = np.max(ds - ts)
+                else:
+                    # make WCPT greater than H if there exists no delta sample less than H
+                    d[i, j] = H + 1
+
+    return d
+
+# Approximates single dimension of delta
+def approximate_delta(d, delta_sample, H, t_sample):
+    ds, ts = find_approximation_window(delta_sample, t_sample, H)
+    this_sample = np.append(ds, ts[-1] + d)
+    ones = np.ones(this_sample.shape)
+    this_time = np.append(ts, ts[-1])
+    this_in = np.column_stack((this_time, ones))
+    h, total_approx_error = upperbounding_hyperplane(this_in, this_sample)
+    return h, total_approx_error
+
+# approximates delta for a uniform task problem, pass through atm
+def approximate_delta_ut(d, delta_sample, H, t_sample):
+    return approximate_delta(d, delta_sample, H, t_sample)
+
+# approximates delta for a nonuniform task
+def approximate_delta_nut(d, delta_sample, H, N, t_sample):
+    h_dim = 2
+    h = np.zeros((N, h_dim))
+    total_approx_error = np.zeros(h.shape[:-1])
+    for i in range(N):
+        h[i], total_approx_error[i] = approximate_delta(d[i], delta_sample[i, :], H, t_sample)
+    return h, total_approx_error
+
+# approximates delta for a set of nonuniform machines using method 1
+def approximate_delta_num_0(d, delta_sample, H, N, num_steps, M, t_sample):
+    # We get to choose our specific ordering of p, so we can also optimize over the reorderings of p
+
+    # permutation_list = list(itertools.permutations([i for i in range(M)]))
+
+    # New permutation technique, reducing set of permutations to ordering of WCPT
+
+    permutation_list = []
+    for i in range(N):
+        permutation_list.append(np.argsort(d[i, :]))
+
+    num_perm = len(permutation_list)
+    h_dim = 3
+    perm_h = np.zeros((num_perm, N, h_dim))
+    # ones = np.ones(M*num_steps)
+
+    # num_steps + 1 for the additional sample that enforces the intercept constraint
+    ones = np.ones(M*(num_steps + 1))
+    perm_total_approx_error = np.zeros((num_perm, N))
+    for permdex in range(num_perm):
+        for i in range(N):
+            this_sample = []
+            this_p_index = []
+            this_t_sample = []
+            for k in range(M):
+                this_sample = np.concatenate((this_sample, delta_sample[i, k, :]))
+                this_p_index = np.concatenate((this_p_index, permutation_list[permdex][k]*np.ones(num_steps)))
+                this_t_sample = np.concatenate((this_t_sample, t_sample))
+
+
+                this_sample = np.append(this_sample, H + d[i, k])
+                this_p_index = np.append(this_p_index, permutation_list[permdex][k])
+                this_t_sample = np.append(this_t_sample, H)
+
+            this_in = np.column_stack((this_t_sample, this_p_index, ones))
+            perm_h[permdex, i, :], perm_total_approx_error[permdex, i] = upperbounding_hyperplane(this_in, this_sample)
+    perm_sum_approx_error = np.sum(perm_total_approx_error, axis=1)
+    argmin_perm = np.argmin(perm_sum_approx_error)
+    h = perm_h[argmin_perm, :, :]
+    P_permutation = permutation_list[argmin_perm]
+    # permute_P()
+    return h, P_permutation
+#
+
+def approximate_delta_num_1(delta_sample, N, M, t_sample):
+    h_1 = np.zeros(N)
+    h_2 = np.zeros((N, M))
+    for i in range(N):
+        this_B = np.array(delta_sample[i, :, :])
+        this_B.reshape((M, t_sample.shape[0]))
+
+        qp_res = het_qp(t_sample, this_B)
+        h_1[i] = qp_res[0]
+        h_2[i, :] = qp_res[1]
+    return h_1, h_2
+
+def approximate_delta_num_2(d, delta_sample, H, N, M, t_sample):
+    h = np.zeros((N, M, 2))
+    error = np.zeros((N, M))
+    for i in range(N):
+        for j in range(M):
+            h[i, j, :], error[i, j] = approximate_delta(d[i, j], delta_sample[i, j, :], H, t_sample)
+    return h, error
+
+def approximate_delta_num_0_het(d, delta_sample, N, num_steps, num_types, M, machine_types, t_sample, task_types):
+    h_dim = 3
+    h = np.zeros((N, 3))
+    P_permutation = []
+    for u in range(num_types):
+        type_u_machines = np.where(machine_types == u)[0]
+        num_u_machines = type_u_machines.shape[0]
+        type_u_tasks = np.where(task_types == u)[0]
+        num_u_tasks = type_u_tasks.shape[0]
+
+        permutation_list = []
+        for i in type_u_tasks:
+            permutation_list.append(type_u_machines[np.argsort(d[i, type_u_machines])])
+
+        # permutation_list = list(itertools.permutations(type_u_machines))
+
+        num_perm = len(permutation_list)
+
+        perm_h = np.zeros((num_perm, num_u_tasks, h_dim))
+        # Additional sample for each point
+        ones = np.ones(num_u_machines * (num_steps + 1))
+        perm_total_approx_error = np.zeros((num_perm, N))
+        for permdex in range(num_perm):
+            for i in range(num_u_tasks):
+                this_sample = []
+                this_p_index = []
+                this_t_sample = []
+                for k in range(num_u_machines):
+                    this_p = permutation_list[permdex][k]
+                    this_sample = np.concatenate((this_sample, delta_sample[type_u_tasks[i], this_p, :]))
+                    this_p_index = np.concatenate(
+                        (this_p_index, this_p * np.ones(num_steps)))
+                    this_t_sample = np.concatenate((this_t_sample, t_sample))
+
+                    this_sample = np.append(this_sample, d[type_u_tasks[i], type_u_machines[k]] + H)
+                    this_p_index = np.append(this_p_index, this_p)
+                    this_t_sample = np.append(this_t_sample, H)
+                this_in = np.column_stack((this_t_sample, this_p_index, ones))
+                # print(this_in)
+                # print(this_in.shape)
+                perm_h[permdex, i, :], perm_total_approx_error[permdex, i] = upperbounding_hyperplane(
+                    this_in, this_sample)
+        perm_sum_approx_error = np.sum(perm_total_approx_error, axis=1)
+        argmin_perm = np.argmin(perm_sum_approx_error)
+        # print(permutation_list)
+        # print(perm_sum_approx_error)
+        # print(perm_h[:, 1, :])
+        h[type_u_tasks, :] = perm_h[argmin_perm, :, :]
+        P_permutation.append(permutation_list[argmin_perm])
+    return h, P_permutation
+    # permute_P()
+
+def approximate_delta_num_1_het(delta_sample, N, num_types, M, machine_types, t_sample, task_types):
+                h_1 = np.zeros(N)
+                h_2 = np.zeros((N, M))
+                for u in range(num_types):
+                    type_u_machines = np.where(machine_types == u)[0]
+                    num_u_machines = type_u_machines.shape[0]
+                    type_u_tasks = np.where(task_types == u)[0]
+                    num_u_tasks = type_u_tasks.shape[0]
+
+                    for i in type_u_tasks:
+                        this_B = np.array(delta_sample[i, type_u_machines, :])
+                        this_B.reshape((num_u_machines, t_sample.shape[0]))
+
+                        qp_res = het_qp(t_sample, this_B)
+                        h_1[i] = qp_res[0]
+                        h_2[i, type_u_machines] = qp_res[1]
+                return h_1, h_2
+
+# pass through of nonuniform machine for
+def approximate_delta_num_2_het(d, delta_sample, H, N, M, t_sample):
+    return approximate_delta_num_2(d, delta_sample, H, N, M, t_sample)
+
+
 class SchedulingProblemType:
     def __init__(self,
                  task_load_type,
@@ -245,7 +487,7 @@ class SchedulingProblem:
         self.d = None
         self.schedule = None
         self.h = None
-        self.P_perm = None
+        self.P_permutation = None
         self.p_permuted = False
         self.WCPT_schedule = None
         self.H = None
@@ -270,29 +512,28 @@ class SchedulingProblem:
             self.t_sample = np.linspace(0, self.W, self.num_steps)
 
         self.delta_sample = delta_sample
-        if problem_type.task_load_type == TaskLoadType.UNIFORM and not problem_type.machine_load_type == MachineLoadType.NONUNIFORM:
-            assert delta_sample.shape == (self.num_steps,)
-            self.delta_bar_fun = self.delta_bar_fun_1D
-            self.delta_hat_fun = self.delta_hat_fun_1D
-            self.sample_dim = (self.num_steps)
-
-        elif problem_type.task_load_type == TaskLoadType.UNIFORM and problem_type.machine_load_type == MachineLoadType.NONUNIFORM:
-            assert delta_sample.shape == (M, self.num_steps)
-            self.delta_bar_fun = self.delta_bar_fun_2D
-            self.delta_hat_fun = self.delta_hat_fun_2D
-            self.sample_dim = (M, self.num_steps)
-
-        elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and not problem_type.machine_load_type == MachineLoadType.NONUNIFORM:
-            assert delta_sample.shape == (N, self.num_steps)
-            self.delta_bar_fun = self.delta_bar_fun_2D
-            self.delta_hat_fun = self.delta_hat_fun_2D
-            self.sample_dim = (N, self.num_steps)
-
-        elif problem_type.task_load_type == TaskLoadType.NONUNIFORM and problem_type.machine_load_type == MachineLoadType.NONUNIFORM:
+        if not problem_type.machine_load_type == MachineLoadType.NONUNIFORM:
+            if problem_type.task_load_type == TaskLoadType.UNIFORM:
+                assert delta_sample.shape == (self.num_steps,)
+                self.delta_bar_fun = delta_bar_fun_ut
+                self.delta_hat_fun = delta_hat_fun_1D
+                self.sample_dim = (self.num_steps)
+            elif problem_type.task_load_type == TaskLoadType.NONUNIFORM:
+                assert delta_sample.shape == (N, self.num_steps)
+                self.delta_bar_fun = delta_bar_fun_nut
+                self.delta_hat_fun = delta_hat_fun_2D
+                self.sample_dim = (N, self.num_steps)
+        else:
+            # Assume any problem with nonuniform machines might as well have nonuniform tasks as well
             assert delta_sample.shape == (N, M, self.num_steps)
-            self.delta_bar_fun = self.delta_bar_fun_3D
-            self.delta_hat_fun = self.delta_hat_fun_3D
+            self.delta_hat_fun = delta_hat_fun_3D
             self.sample_dim = (N, M, self.num_steps)
+            if het_method_hyperplane == 1:
+                self.delta_bar_fun = delta_bar_fun_num_0
+            elif het_method_hyperplane == 2:
+                self.delta_bar_fun = delta_bar_fun_num_1
+            elif het_method_hyperplane == 3:
+                self.delta_bar_fun = delta_bar_fun_num_2
 
         self.multimachine = (problem_type.machine_load_type == MachineLoadType.UNIFORM
                              or problem_type.machine_load_type == MachineLoadType.NONUNIFORM)
@@ -369,36 +610,28 @@ class SchedulingProblem:
                         # make WCPT greater than H if there exists no delta sample less than H
                         self.d[i, j] = self.H + 1
 
-    def sample_delta_bar_fun(self):
-        if self.h is None:
-            self.approximate_delta()
-        self.delta_bar_sample = sample_generic_fun(self.delta_bar_fun, self.t_sample, self.sample_dim)
-
-    def sample_delta_hat_fun(self):
-        if self.d is None:
-            self.find_WCPT()
-        self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.t_sample, self.sample_dim)
-
     # Takes resulting permutations and problem state to maintain guarantees
     def permute_P(self):
-        assert self.P_perm is not None
+        assert self.P_permutation is not None
+
         if self.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
             if self.B is not None:
                 new_B = np.zeros(self.B.shape)
                 for i in range(self.M):
                     for j in range(self.M):
-                        new_B[i, j] = self.B[self.P_perm[i], self.P_perm[j]]
+                        new_B[i, j] = self.B[self.P_permutation[i], self.P_permutation[j]]
                 self.B = new_B
+
             new_delta_sample = np.zeros(self.delta_sample.shape)
             for i in range(self.M):
-                new_delta_sample[:, i, :] = self.delta_sample[:, self.P_perm[i], :]
+                new_delta_sample[:, i, :] = self.delta_sample[:, self.P_permutation[i], :]
             self.delta_sample = new_delta_sample
 
             if self.delta_hat_sample is None:
-                self.sample_delta_hat_fun()
+                self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d,  self.t_sample, self.sample_dim)
             new_delta_hat_sample = np.zeros(self.delta_hat_sample.shape)
             for i in range(self.M):
-                new_delta_hat_sample[:, i, :] = self.delta_hat_sample[:, self.P_perm[i], :]
+                new_delta_hat_sample[:, i, :] = self.delta_hat_sample[:, self.P_permutation[i], :]
             self.delta_hat_sample = new_delta_hat_sample
         elif self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
             if self.B is not None:
@@ -407,25 +640,25 @@ class SchedulingProblem:
             new_delta_sample = self.delta_sample.copy()
 
             if self.delta_hat_sample is None:
-                self.sample_delta_hat_fun()
+                self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d,  self.t_sample, self.sample_dim)
             new_delta_hat_sample = self.delta_hat_sample.copy()
 
-            for u in range(len(self.P_perm)):
+            for u in range(len(self.P_permutation)):
                 type_u_machines = np.where(self.machine_types == u)[0]
                 num_u_machines = type_u_machines.shape[0]
 
                 if self.B is not None:
                     for i in range(num_u_machines):
                         for j in range(num_u_machines):
-                            new_B[type_u_machines[i], type_u_machines[j]] = self.B[self.P_perm[u][i], self.P_perm[u][j]]
+                            new_B[type_u_machines[i], type_u_machines[j]] = self.B[self.P_permutation[u][i], self.P_permutation[u][j]]
                     self.B = new_B
 
                 for i in range(num_u_machines):
-                    new_delta_sample[:, type_u_machines[i], :] = self.delta_sample[:, self.P_perm[u][i], :]
+                    new_delta_sample[:, type_u_machines[i], :] = self.delta_sample[:, self.P_permutation[u][i], :]
                 self.delta_sample = new_delta_sample
 
                 for i in range(num_u_machines):
-                    new_delta_hat_sample[:, type_u_machines[i], :] = self.delta_hat_sample[:, self.P_perm[u][i], :]
+                    new_delta_hat_sample[:, type_u_machines[i], :] = self.delta_hat_sample[:, self.P_permutation[u][i], :]
                 self.delta_hat_sample = new_delta_hat_sample
 
             if self.B is not None:
@@ -440,34 +673,14 @@ class SchedulingProblem:
     def approximate_delta(self):
 
         if self.d is None:
-            self.find_WCPT()
+            self.d = find_WCPT(self.delta_sample, self.t_sample, self.H)
 
+        # The resulting approximation on uniform machine is the same as if single machine
         if self.problem_type.machine_load_type == MachineLoadType.SINGLE or self.problem_type.machine_load_type == MachineLoadType.UNIFORM:
-            h_dim = 2
-            ones = np.ones(self.num_steps)
-            # t_sample
             if self.problem_type.task_load_type == TaskLoadType.NONUNIFORM:
-                self.h = np.zeros((self.N, h_dim))
-                self.total_approx_error = np.zeros(self.h.shape[:-1])
-                for i in range(self.N):
-                    # We append the sample of the WCPT intercept at H
-                    ds, ts = self.find_approximation_window(self.delta_sample[i, :])
-                    this_sample = np.append(ds, ts[-1] + self.d[i])
-
-                    ones = np.ones(this_sample.shape)
-                    this_time = np.append(ts, ts[-1])
-                    this_in = np.column_stack((this_time, ones))
-                    self.h[i], self.total_approx_error[i] = upperbounding_hyperplane(this_in, this_sample)
-
+                self.h, self.total_approx_error = approximate_delta_nut(self.d, self.delta_sample, self.H, self.N, self.t_sample)
             elif self.problem_type.task_load_type == TaskLoadType.UNIFORM:
-                self.h = np.zeros(h_dim)
-                ds, ts = self.find_approximation_window(self.delta_sample)
-                this_sample = np.append(ds, ts[-1] + self.d)
-                ones = np.ones(this_sample.shape)
-                this_time = np.append(ts, ts[-1])
-                this_in = np.column_stack((this_time, ones))
-                # this_in = this_in.transpose()
-                self.h, self.total_approx_error = upperbounding_hyperplane(this_in, this_sample)
+                self.h, self.total_approx_error = approximate_delta_ut(self.d, self.delta_sample, self.H, self.t_sample)
 
         elif self.problem_type.machine_load_type == MachineLoadType.NONUNIFORM:
             if self.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
@@ -477,151 +690,23 @@ class SchedulingProblem:
 
                 # New permutation technique, reducing set of permutations to ordering of WCPT
                 if self.het_method_hyperplane == 0:
-                    permutation_list = []
-                    for i in range(self.N):
-                        permutation_list.append(np.argsort(self.d[i, :]))
-
-                    num_perm = len(permutation_list)
-                    h_dim = 3
-                    perm_h = np.zeros((num_perm, self.N, h_dim))
-                    # ones = np.ones(self.M*self.num_steps)
-
-                    # self.num_steps + 1 for the additional sample that enforces the intercept constraint
-                    ones = np.ones(self.M*(self.num_steps + 1))
-                    perm_total_approx_error = np.zeros((num_perm, self.N))
-                    for permdex in range(num_perm):
-                        for i in range(self.N):
-                            this_sample = []
-                            this_p_index = []
-                            this_t_sample = []
-                            for k in range(self.M):
-                                this_sample = np.concatenate((this_sample, self.delta_sample[i, k, :]))
-                                this_p_index = np.concatenate((this_p_index, permutation_list[permdex][k]*np.ones(self.num_steps)))
-                                this_t_sample = np.concatenate((this_t_sample, self.t_sample))
-
-                            #     WCPT H intercept constraint sample
-                                this_sample = np.append(this_sample, self.H + self.d[i, k])
-                                this_p_index = np.append(this_p_index, permutation_list[permdex][k])
-                                this_t_sample = np.append(this_t_sample, self.H)
-
-                            this_in = np.column_stack((this_t_sample, this_p_index, ones))
-                            # print(this_in)
-                            # print(this_in.shape)
-                            perm_h[permdex, i, :], perm_total_approx_error[permdex, i] = upperbounding_hyperplane(this_in, this_sample)
-                    perm_sum_approx_error = np.sum(perm_total_approx_error, axis=1)
-                    argmin_perm = np.argmin(perm_sum_approx_error)
-                    # print(permutation_list)
-                    # print(perm_sum_approx_error)
-                    # print(perm_h[:, 1, :])
-                    self.h = perm_h[argmin_perm, :, :]
-                    self.P_perm = permutation_list[argmin_perm]
+                    self.h, self.P_permutation = approximate_delta_num_0(self.d, self.delta_sample, self.H, self.N, self.num_steps, self.M, self.t_sample)
                     self.permute_P()
 
                 elif self.het_method_hyperplane == 1:
-                    self.h_1 = np.zeros(self.N)
-                    self.h_2 = np.zeros((self.N, self.M))
-                    for i in range(self.N):
-                        this_B = np.array(self.delta_sample[i, :, :])
-                        this_B.reshape((self.M, self.t_sample.shape[0]))
-
-                        qp_res = het_qp(self.t_sample, this_B)
-                        self.h_1[i] = qp_res[0]
-                        self.h_2[i, :] = qp_res[1]
+                    self.h_1, self.h_2 = approximate_delta_num_1(self.delta_sample, self.N, self.M, self.t_sample)
 
                 elif self.het_method_hyperplane == 2:
-                    self.h = np.zeros((self.N, self.M, 2))
-                    for i in range(self.N):
-                        for j in range(self.M):
-                            ds = self.delta_sample[i, j, :]
-                            ds_index = (ds <= self.H)
-                            ds = ds[ds_index]
-                            ts = self.t_sample[ds_index]
-                            this_sample = np.append(ds, self.H + self.d[i, j])
-                            this_time = np.append(ts, self.H)
-                            ones = np.ones(this_time.shape[0])
-                            this_in = np.column_stack((this_time, ones))
-                            self.h[i, j, :], approx_error = upperbounding_hyperplane(this_in, this_sample)
+                    self.h, self.total_approx_error = approximate_delta_num_2(self.d, self.delta_sample, self.H, self.N, self.M, self.t_sample)
 
             elif self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
                 if self.het_method_hyperplane == 0:
-                    h_dim = 3
-                    self.h = np.zeros((self.N, 3))
-                    self.P_perm = []
-                    for u in range(self.num_types):
-                        type_u_machines = np.where(self.machine_types == u)[0]
-                        num_u_machines = type_u_machines.shape[0]
-                        type_u_tasks = np.where(self.task_types == u)[0]
-                        num_u_tasks = type_u_tasks.shape[0]
-
-                        permutation_list = []
-                        for i in type_u_tasks:
-                            permutation_list.append(type_u_machines[np.argsort(self.d[i, type_u_machines])])
-
-                        # permutation_list = list(itertools.permutations(type_u_machines))
-
-                        num_perm = len(permutation_list)
-
-                        perm_h = np.zeros((num_perm, num_u_tasks, h_dim))
-                        # Additional sample for each point
-                        ones = np.ones(num_u_machines * (self.num_steps + 1))
-                        perm_total_approx_error = np.zeros((num_perm, self.N))
-                        for permdex in range(num_perm):
-                            for i in range(num_u_tasks):
-                                this_sample = []
-                                this_p_index = []
-                                this_t_sample = []
-                                for k in range(num_u_machines):
-                                    this_p = permutation_list[permdex][k]
-                                    this_sample = np.concatenate((this_sample, self.delta_sample[type_u_tasks[i], this_p, :]))
-                                    this_p_index = np.concatenate(
-                                        (this_p_index, this_p * np.ones(self.num_steps)))
-                                    this_t_sample = np.concatenate((this_t_sample, self.t_sample))
-
-                                    this_sample = np.append(this_sample, self.d[type_u_tasks[i], type_u_machines[k]] + self.H)
-                                    this_p_index = np.append(this_p_index, this_p)
-                                    this_t_sample = np.append(this_t_sample, self.H)
-                                this_in = np.column_stack((this_t_sample, this_p_index, ones))
-                                # print(this_in)
-                                # print(this_in.shape)
-                                perm_h[permdex, i, :], perm_total_approx_error[permdex, i] = upperbounding_hyperplane(
-                                    this_in, this_sample)
-                        perm_sum_approx_error = np.sum(perm_total_approx_error, axis=1)
-                        argmin_perm = np.argmin(perm_sum_approx_error)
-                        # print(permutation_list)
-                        # print(perm_sum_approx_error)
-                        # print(perm_h[:, 1, :])
-                        self.h[type_u_tasks, :] = perm_h[argmin_perm, :, :]
-                        self.P_perm.append(permutation_list[argmin_perm])
+                    self.h, self.P_permutation = approximate_delta_num_0_het(self.d, self.delta_sample, self.N, self.num_steps, self.num_types, self.M, self.machine_types, self.t_sample, self.task_types)
                     self.permute_P()
                 elif self.het_method_hyperplane == 1:
-                    self.h_1 = np.zeros(self.N)
-                    self.h_2 = np.zeros((self.N, self.M))
-                    for u in range(self.num_types):
-                        type_u_machines = np.where(self.machine_types == u)[0]
-                        num_u_machines = type_u_machines.shape[0]
-                        type_u_tasks = np.where(self.task_types == u)[0]
-                        num_u_tasks = type_u_tasks.shape[0]
-
-                        for i in type_u_tasks:
-                            this_B = np.array(self.delta_sample[i, type_u_machines, :])
-                            this_B.reshape((num_u_machines, self.t_sample.shape[0]))
-
-                            qp_res = het_qp(self.t_sample, this_B)
-                            self.h_1[i] = qp_res[0]
-                            self.h_2[i, type_u_machines] = qp_res[1]
+                    self.h_1, self.h_2 = approximate_delta_num_1_het(self.delta_sample, self.N, self.num_types, self.M, self.machine_types, self.t_sample, self.task_types)
                 elif self.het_method_hyperplane == 2:
-                    self.h = np.zeros((self.N, self.M, 2))
-                    for i in range(self.N):
-                        for j in range(self.M):
-                            ds = self.delta_sample[i, j, :]
-                            ds_index = (ds <= self.H)
-                            ds = ds[ds_index]
-                            ts = self.t_sample[ds_index]
-                            this_sample = np.append(ds, ts[-1] + self.d[i, j])
-                            this_time = np.append(ts, ts[-1])
-                            ones = np.ones(this_time.shape[0])
-                            this_in = np.column_stack((this_time, ones))
-                            self.h[i, j, :], approx_error = upperbounding_hyperplane(this_in, this_sample)
+                    self.h, self.total_approx_error = approximate_delta_num_2(self.d, self.delta_sample, self.H, self.N, self.M, self.t_sample)
 
     def WCPT_compute_schedule(self):
         if self.d is None:
@@ -635,6 +720,7 @@ class SchedulingProblem:
                         self.U[i, j] = 1
 
         model = mip.Model(solver_name=mip.CBC)
+        model.verbose = 0
 
         s = [model.add_var(name='s({})'.format(i+1)) for i in range(self.N)]
         C = [model.add_var(name='C({})'.format(i+1)) for i in range(self.N)]
@@ -743,10 +829,22 @@ class SchedulingProblem:
             return pasum
 
         if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS and self.p_permuted:
+            self.h = np.zeros((self.N, self.M, 2))
+            for i in range(self.N):
+                for j in range(self.M):
+                    ds = self.delta_sample[i, j, :]
+                    ds_index = (ds <= self.H)
+                    ds = ds[ds_index]
+                    ts = self.t_sample[ds_index]
+                    this_sample = np.append(ds, self.H + self.d[i, j])
+                    this_time = np.append(ts, self.H)
+                    ones = np.ones(this_time.shape[0])
+                    this_in = np.column_stack((this_time, ones))
+                    self.h[i, j, :], approx_error = upperbounding_hyperplane(this_in, this_sample)
             # unpermute
             big_permute = []
             for u in range(self.num_types):
-                big_permute = np.concatenate((big_permute, np.array(self.P_perm[u])))
+                big_permute = np.concatenate((big_permute, np.array(self.P_permutation[u])))
 
         self.WCPT_schedule = []
 
@@ -754,7 +852,7 @@ class SchedulingProblem:
             if self.multimachine:
                 if self.p_permuted:
                     if self.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
-                        self.WCPT_schedule.append((s[i].x, self.P_perm[pasum(x, i)]))
+                        self.WCPT_schedule.append((s[i].x, self.P_permutation[pasum(x, i)]))
                     # self.WCPT_schedule.append((s[i].x, pasum(x, i)))
                     elif self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
                         self.WCPT_schedule.append((s[i].x, np.where(big_permute == pasum(x, i))[0][0]))
@@ -780,6 +878,7 @@ class SchedulingProblem:
                         self.U[i, j] = 1
 
         model = mip.Model(solver_name=mip.CBC)
+        model.verbose = 0
 
         # Rectify delta funciton
         # TODO: set H < T and then afford irregular spacing
@@ -981,6 +1080,8 @@ class SchedulingProblem:
                         self.U[i, j] = 1
 
         model = mip.Model(solver_name=mip.CBC)
+        model.verbose = 0
+
         s = [model.add_var(name='s({})'.format(i+1)) for i in range(self.N)]
         C = [model.add_var(name='C({})'.format(i+1)) for i in range(self.N)]
         sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(self.N)]
@@ -1095,7 +1196,7 @@ class SchedulingProblem:
             schedule_series = pasum_series.copy()
             big_permute = []
             for u in range(self.num_types):
-                big_permute = np.concatenate((big_permute, np.array(self.P_perm[u])))
+                big_permute = np.concatenate((big_permute, np.array(self.P_permutation[u])))
 
         self.schedule = []
 
@@ -1103,7 +1204,7 @@ class SchedulingProblem:
             if self.multimachine:
                 if self.p_permuted:
                     if self.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
-                        self.schedule.append((s[i].x, self.P_perm[pasum(x, i)]))
+                        self.schedule.append((s[i].x, self.P_permutation[pasum(x, i)]))
                     elif self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
                         self.schedule.append((s[i].x, np.where(big_permute == pasum(x, i))[0][0]))
                 else:
@@ -1167,6 +1268,8 @@ class SchedulingProblem:
 
 
         model = mip.Model(solver_name=mip.CBC)
+        model.verbose = 0
+
         s = [model.add_var(name='s({})'.format(i+1)) for i in range(self.N)]
         C = [model.add_var(name='C({})'.format(i+1)) for i in range(self.N)]
         sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(self.N)]
@@ -1243,10 +1346,11 @@ class SchedulingProblem:
     def plot_delta_fun(self):
 
         if self.delta_bar_sample is None:
-            self.sample_delta_bar_fun()
+            self.delta_bar_sample = sample_generic_fun(self.delta_bar_fun, self.h,  self.t_sample, self.sample_dim)
+
 
         if self.delta_hat_sample is None:
-            self.sample_delta_hat_fun()
+            self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d,  self.t_sample, self.sample_dim)
 
         fig = go.Figure()
         if len(self.delta_sample.shape) == 1:

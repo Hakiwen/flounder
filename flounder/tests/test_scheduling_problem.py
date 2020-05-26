@@ -12,7 +12,7 @@ class NonuniformTaskCase(unittest.TestCase):
     def setUpClass(cls):
         p = [0, 1, 2]
         target_dir = os.path.dirname(os.path.realpath(__file__))
-        print(target_dir)
+
         cls.t_sample = np.loadtxt(target_dir + "/data/t_sample.csv", delimiter=',')
         cls.delta_funs = np.loadtxt(target_dir + "/data/random_5_fun.csv", delimiter=',')
         cls.fits = np.loadtxt(target_dir + "/data/fit_5_fun.csv", delimiter=',')
@@ -69,7 +69,7 @@ class PrecedenceTaskCase(unittest.TestCase):
         A[2, 0] = 1
 
         target_dir = os.path.dirname(os.path.realpath(__file__))
-        print(target_dir)
+
         cls.t_sample = np.loadtxt(target_dir + "/data/t_sample.csv", delimiter=',')
         cls.delta_funs = np.loadtxt(target_dir + "/data/random_5_fun.csv", delimiter=',')
         cls.fits = np.loadtxt(target_dir + "/data/fit_5_fun.csv", delimiter=',')
@@ -117,6 +117,7 @@ class PrecedenceTaskCase(unittest.TestCase):
                          8.492135283711615,
                          "Incorrect WCPT Makespan")
 
+
 class MultimachineTaskCase(unittest.TestCase):
 
     @classmethod
@@ -125,7 +126,7 @@ class MultimachineTaskCase(unittest.TestCase):
         m = 2
 
         target_dir = os.path.dirname(os.path.realpath(__file__))
-        print(target_dir)
+
         cls.t_sample = np.loadtxt(target_dir + "/data/t_sample.csv", delimiter=',')
         cls.delta_funs = np.loadtxt(target_dir + "/data/random_5_fun.csv", delimiter=',')
         cls.fits = np.loadtxt(target_dir + "/data/fit_5_fun.csv", delimiter=',')
@@ -146,7 +147,8 @@ class MultimachineTaskCase(unittest.TestCase):
 
     def test_exact_schedule(self):
         self.assertEqual(self.scheduling_problem.exact_schedule,
-                         [(1.5151515151515316, 1), (0.6060606060606126, 1), (0.6060606060606126, 0), (0.0, 0), (0.0, 1)],
+                         [(1.5151515151515316, 1), (0.6060606060606126, 1), (0.6060606060606126, 0), (0.0, 0),
+                          (0.0, 1)],
                          "Incorrect Exact Schedule")
 
     def test_exact_makespan(self):
@@ -174,6 +176,7 @@ class MultimachineTaskCase(unittest.TestCase):
                          9.435998743015091,
                          "Incorrect WCPT Makespan")
 
+
 class NonuniformMultimachineTaskCase(unittest.TestCase):
 
     @classmethod
@@ -182,7 +185,7 @@ class NonuniformMultimachineTaskCase(unittest.TestCase):
         s = [0, 1, 2]
 
         target_dir = os.path.dirname(os.path.realpath(__file__))
-        print(target_dir)
+
         cls.t_sample = np.loadtxt(target_dir + "/data/t_sample.csv", delimiter=',')
         cls.delta_funs = np.loadtxt(target_dir + "/data/random_5_fun.csv", delimiter=',')
         cls.fits = np.loadtxt(target_dir + "/data/fit_5_fun.csv", delimiter=',')
@@ -191,7 +194,6 @@ class NonuniformMultimachineTaskCase(unittest.TestCase):
         for i in range(N):
             new_delta_funs[:, i, :] = cls.delta_funs[i, :]
         cls.delta_funs = new_delta_funs
-
 
         cls.scheduling_problem_type = SchedulingProblemType(TaskLoadType.NONUNIFORM,
                                                             TaskRelationType.UNRELATED,
@@ -278,6 +280,7 @@ class NonuniformMultimachineTaskCase(unittest.TestCase):
         self.assertEqual(self.scheduling_problem_0.WCPT_objective,
                          4.4025872810219635,
                          "Incorrect WCPT Makespan")
+
 
 if __name__ == '__main__':
     unittest.main()
