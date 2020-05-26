@@ -140,6 +140,30 @@ def permute_B(B, permutation):
             new_B[i, j] = B[permutation[i], permutation[j]]
     return new_B
 
+def permute_sample(sample, permutation):
+    new_sample = np.zeros(sample.shape)
+    for i in range(sample.shape[1]):
+        new_sample[:, i, :] = sample[:, permutation[i], :]
+    return new_sample
+
+# Permute B with a subset of machines, representing a particular type
+def permute_typed_B(B, permutation, type_machines):
+    num_type_machines = len(type_machines)
+    new_B = B.copy()
+    for i in range(num_type_machines):
+        for j in range(num_type_machines):
+            new_B[type_machines[i], type_machines[j]] = B[permutation[i], permutation[j]]
+    return new_B
+
+# Permute a sample with a subset of machines, representing a particular type
+def permute_typed_sample(sample, permutation, type_machines):
+    # Copy because it is only a partial permutation
+    new_sample = sample.copy()
+    num_type_machines = len(type_machines)
+    for i in range(num_type_machines):
+        new_sample[:, type_machines[i], :] = sample[:, permutation[i], :]
+    return new_sample
+
 
 def plot_circ_digraph(G=None, A=None):
     if G is None:
@@ -211,7 +235,6 @@ def plot_circ_digraph(G=None, A=None):
 # In code, first index of tasks and machines is 0
 # In reference and display, first index of tasks and machines is 1
 
-
 def delta_bar_fun_ut(h, t):
     return h[0]*t + h[1]
 
@@ -224,8 +247,8 @@ def delta_bar_fun_nut(h, t, i):
 def delta_bar_fun_num_0(h, t, i, j):
     return h[i, 0]*t + h[i, 1]*j + h[i, 2]
 
-def delta_bar_fun_num_1(h_1, h_2, t, i, j):
-    return h_1[i]*t + h_2[i, j]
+def delta_bar_fun_num_1(h, t, i, j):
+    return h['h_1'][i]*t + h['h_2'][i, j]
 
 def delta_bar_fun_num_2(h, t, i, j):
     return h[i, j, 0]*t + h[i, j, 1]
@@ -364,7 +387,7 @@ def approximate_delta_num_2(d, delta_sample, H, N, M, t_sample):
             h[i, j, :], error[i, j] = approximate_delta(d[i, j], delta_sample[i, j, :], H, t_sample)
     return h, error
 
-def approximate_delta_num_0_het(d, delta_sample, N, num_steps, num_types, M, machine_types, t_sample, task_types):
+def approximate_delta_num_0_het(d, delta_sample, H, N, num_steps, num_types, M, machine_types, t_sample, task_types):
     h_dim = 3
     h = np.zeros((N, 3))
     P_permutation = []
@@ -417,22 +440,22 @@ def approximate_delta_num_0_het(d, delta_sample, N, num_steps, num_types, M, mac
     # permute_P()
 
 def approximate_delta_num_1_het(delta_sample, N, num_types, M, machine_types, t_sample, task_types):
-                h_1 = np.zeros(N)
-                h_2 = np.zeros((N, M))
-                for u in range(num_types):
-                    type_u_machines = np.where(machine_types == u)[0]
-                    num_u_machines = type_u_machines.shape[0]
-                    type_u_tasks = np.where(task_types == u)[0]
-                    num_u_tasks = type_u_tasks.shape[0]
+    h_1 = np.zeros(N)
+    h_2 = np.zeros((N, M))
+    for u in range(num_types):
+        type_u_machines = np.where(machine_types == u)[0]
+        num_u_machines = type_u_machines.shape[0]
+        type_u_tasks = np.where(task_types == u)[0]
+        num_u_tasks = type_u_tasks.shape[0]
 
-                    for i in type_u_tasks:
-                        this_B = np.array(delta_sample[i, type_u_machines, :])
-                        this_B.reshape((num_u_machines, t_sample.shape[0]))
+        for i in type_u_tasks:
+            this_B = np.array(delta_sample[i, type_u_machines, :])
+            this_B.reshape((num_u_machines, t_sample.shape[0]))
 
-                        qp_res = het_qp(t_sample, this_B)
-                        h_1[i] = qp_res[0]
-                        h_2[i, type_u_machines] = qp_res[1]
-                return h_1, h_2
+            qp_res = het_qp(t_sample, this_B)
+            h_1[i] = qp_res[0]
+            h_2[i, type_u_machines] = qp_res[1]
+    return h_1, h_2
 
 # pass through of nonuniform machine for
 def approximate_delta_num_2_het(d, delta_sample, H, N, M, t_sample):
@@ -551,35 +574,16 @@ class SchedulingProblem:
             assert B.shape == (M, M)
             self.J = nx.to_networkx_graph(B, create_using=nx.DiGraph)
 
-    def delta_bar_fun_1D(self, t):
-        return self.h[0]*t + self.h[1]
+    def sample_delta_bar(self):
+        sample_h = None
+        if self.problem_type.machine_load_type == MachineLoadType.NONUNIFORM:
+            sample_h = {"h_1": self.h_1, "h_2": self.h_2}
+        else:
+            sample_h = self.h
+        self.delta_bar_sample = sample_generic_fun(self.delta_bar_fun, sample_h, self.t_sample, self.sample_dim)
 
-    def delta_bar_fun_2D(self, t, i):
-        return self.h[i, 0]*t + self.h[i, 1]
-
-    # Assumes second dimension corresponds to k or another in dimension for the mapping
-    def delta_bar_fun_3D(self, t, i, j):
-        if self.het_method_hyperplane == 0:
-            return self.h[i, 0]*t + self.h[i, 1]*j + self.h[i, 2]
-        elif self.het_method_hyperplane == 1:
-            return self.h_1[i]*t + self.h_2[i, j]
-        elif self.het_method_hyperplane == 2:
-            return self.h[i, j, 0]*t + self.h[i, j, 1]
-
-    def delta_hat_fun_1D(self, t):
-        return t + self.d
-
-    def delta_hat_fun_2D(self, t, i):
-        return t + self.d[i]
-
-    def delta_hat_fun_3D(self, t, i, k):
-        return t + self.d[i, k]
-
-    def find_approximation_window(self, delta_sample):
-        ds_index = (delta_sample <= self.H)
-        ds = delta_sample[ds_index]
-        ts = self.t_sample[ds_index]
-        return ds, ts
+    def sample_delta_hat(self):
+        self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d, self.t_sample, self.sample_dim)
 
     def find_WCPT(self):
         bounds = optimize.Bounds([0], [self.W])
@@ -614,58 +618,26 @@ class SchedulingProblem:
     def permute_P(self):
         assert self.P_permutation is not None
 
+        if self.delta_hat_sample is None:
+            self.sample_delta_hat()
+
         if self.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
             if self.B is not None:
-                new_B = np.zeros(self.B.shape)
-                for i in range(self.M):
-                    for j in range(self.M):
-                        new_B[i, j] = self.B[self.P_permutation[i], self.P_permutation[j]]
-                self.B = new_B
+                permute_B(self.B, self.P_permutation)
 
-            new_delta_sample = np.zeros(self.delta_sample.shape)
-            for i in range(self.M):
-                new_delta_sample[:, i, :] = self.delta_sample[:, self.P_permutation[i], :]
-            self.delta_sample = new_delta_sample
+            self.delta_sample = permute_sample(self.delta_sample, self.P_permutation)
+            self.delta_hat_sample = permute_sample(self.delta_hat_sample, self.P_permutation)
 
-            if self.delta_hat_sample is None:
-                self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d,  self.t_sample, self.sample_dim)
-            new_delta_hat_sample = np.zeros(self.delta_hat_sample.shape)
-            for i in range(self.M):
-                new_delta_hat_sample[:, i, :] = self.delta_hat_sample[:, self.P_permutation[i], :]
-            self.delta_hat_sample = new_delta_hat_sample
         elif self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-            if self.B is not None:
-                new_B = self.B.copy()
-
-            new_delta_sample = self.delta_sample.copy()
-
-            if self.delta_hat_sample is None:
-                self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d,  self.t_sample, self.sample_dim)
-            new_delta_hat_sample = self.delta_hat_sample.copy()
 
             for u in range(len(self.P_permutation)):
                 type_u_machines = np.where(self.machine_types == u)[0]
-                num_u_machines = type_u_machines.shape[0]
 
                 if self.B is not None:
-                    for i in range(num_u_machines):
-                        for j in range(num_u_machines):
-                            new_B[type_u_machines[i], type_u_machines[j]] = self.B[self.P_permutation[u][i], self.P_permutation[u][j]]
-                    self.B = new_B
+                    self.B = permute_typed_B(self.B, self.P_permutation[u], type_u_machines)
 
-                for i in range(num_u_machines):
-                    new_delta_sample[:, type_u_machines[i], :] = self.delta_sample[:, self.P_permutation[u][i], :]
-                self.delta_sample = new_delta_sample
-
-                for i in range(num_u_machines):
-                    new_delta_hat_sample[:, type_u_machines[i], :] = self.delta_hat_sample[:, self.P_permutation[u][i], :]
-                self.delta_hat_sample = new_delta_hat_sample
-
-            if self.B is not None:
-                self.B = new_B
-
-            if self.delta_sample is not None:
-                self.delta_sample = new_delta_sample
+                self.delta_sample = permute_typed_sample(self.delta_sample, self.P_permutation[u], type_u_machines)
+                self.delta_hat_sample = permute_typed_sample(self.delta_hat_sample, self.P_permutation[u], type_u_machines)
 
         self.p_permuted = True
 
@@ -701,7 +673,7 @@ class SchedulingProblem:
 
             elif self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
                 if self.het_method_hyperplane == 0:
-                    self.h, self.P_permutation = approximate_delta_num_0_het(self.d, self.delta_sample, self.N, self.num_steps, self.num_types, self.M, self.machine_types, self.t_sample, self.task_types)
+                    self.h, self.P_permutation = approximate_delta_num_0_het(self.d, self.delta_sample, self.H, self.N, self.num_steps, self.num_types, self.M, self.machine_types, self.t_sample, self.task_types)
                     self.permute_P()
                 elif self.het_method_hyperplane == 1:
                     self.h_1, self.h_2 = approximate_delta_num_1_het(self.delta_sample, self.N, self.num_types, self.M, self.machine_types, self.t_sample, self.task_types)
@@ -1346,11 +1318,10 @@ class SchedulingProblem:
     def plot_delta_fun(self):
 
         if self.delta_bar_sample is None:
-            self.delta_bar_sample = sample_generic_fun(self.delta_bar_fun, self.h,  self.t_sample, self.sample_dim)
-
+            self.sample_delta_bar()
 
         if self.delta_hat_sample is None:
-            self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d,  self.t_sample, self.sample_dim)
+            self.sample_delta_hat()
 
         fig = go.Figure()
         if len(self.delta_sample.shape) == 1:
