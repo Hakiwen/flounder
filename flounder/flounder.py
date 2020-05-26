@@ -268,35 +268,28 @@ def find_approximation_window(delta_sample, t_sample, H):
     ts = t_sample[ds_index]
     return ds, ts
 
+def find_single_WCPT(delta_sample, t_sample, H):
+    d = None
+    ds, ts = find_approximation_window(delta_sample, t_sample, H)
+    if ds.shape[0] > 0:
+        d = np.max(ds - ts)
+    else:
+        d = H + 1
+    return d
 
 def find_WCPT(delta_sample, t_sample, H):
-    d = -1
+    d = None
     if len(delta_sample.shape) == 1:
-        ds, ts = find_approximation_window(delta_sample, t_sample, H)
-        if ds.shape[0] > 0:
-            d = np.max(ds - ts)
-        else:
-            d = H + 1
-
+        d = find_single_WCPT(delta_sample, t_sample, H)
     elif len(delta_sample.shape) == 2:
         d = np.zeros((delta_sample.shape[0]))
         for i in range(delta_sample.shape[0]):
-            ds, ts = find_approximation_window(delta_sample[i, :], t_sample, H)
-            if ds.shape[0] > 0:
-                d[i] = np.max(ds - ts)
-            else:
-                d[i] = H + 1
+            d[i] = find_single_WCPT(delta_sample[i, :], t_sample, H)
     elif len(delta_sample.shape) == 3:
         d = np.zeros((delta_sample.shape[0], delta_sample.shape[1]))
         for i in range(delta_sample.shape[0]):
             for j in range(delta_sample.shape[1]):
-                ds, ts = find_approximation_window(delta_sample[i, j, :], t_sample, H)
-                if ds.shape[0] > 0:
-                    d[i, j] = np.max(ds - ts)
-                else:
-                    # make WCPT greater than H if there exists no delta sample less than H
-                    d[i, j] = H + 1
-
+                d[i, j] = find_single_WCPT(delta_sample[i, j, :], t_sample, H)
     return d
 
 # Approximates single dimension of delta
@@ -585,35 +578,6 @@ class SchedulingProblem:
     def sample_delta_hat(self):
         self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d, self.t_sample, self.sample_dim)
 
-    def find_WCPT(self):
-        bounds = optimize.Bounds([0], [self.W])
-        self.d = -1
-        if len(self.delta_sample.shape) == 1:
-            ds, ts = self.find_approximation_window(self.delta_sample)
-            if ds.shape[0] > 0:
-                self.d = np.max(ds - ts)
-            else:
-                self.d = self.H + 1
-
-        elif len(self.delta_sample.shape) == 2:
-            self.d = np.zeros((self.delta_sample.shape[0]))
-            for i in range(self.delta_sample.shape[0]):
-                ds, ts = self.find_approximation_window(self.delta_sample[i, :])
-                if ds.shape[0] > 0:
-                    self.d[i] = np.max(ds - ts)
-                else:
-                    self.d[i] = self.H + 1
-        elif len(self.delta_sample.shape) == 3:
-            self.d = np.zeros((self.delta_sample.shape[0], self.delta_sample.shape[1]))
-            for i in range(self.delta_sample.shape[0]):
-                for j in range(self.delta_sample.shape[1]):
-                    ds, ts = self.find_approximation_window(self.delta_sample[i, j, :])
-                    if ds.shape[0] > 0:
-                        self.d[i, j] = np.max(ds - ts)
-                    else:
-                        # make WCPT greater than H if there exists no delta sample less than H
-                        self.d[i, j] = self.H + 1
-
     # Takes resulting permutations and problem state to maintain guarantees
     def permute_P(self):
         assert self.P_permutation is not None
@@ -682,7 +646,7 @@ class SchedulingProblem:
 
     def WCPT_compute_schedule(self):
         if self.d is None:
-            self.find_WCPT()
+            self.d = find_WCPT(self.delta_sample, self.t_sample, self.H)
 
         if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
             self.U = np.zeros((self.N, self.M))
