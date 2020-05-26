@@ -3,7 +3,7 @@ import unittest
 import os
 
 from flounder.flounder import SchedulingProblem, SchedulingProblemType, \
-    TaskLoadType, TaskRelationType, MachineLoadType, DeltaFunctionClass
+    TaskLoadType, TaskRelationType, MachineLoadType
 
 
 class NonuniformTaskCase(unittest.TestCase):
@@ -17,8 +17,9 @@ class NonuniformTaskCase(unittest.TestCase):
         cls.delta_funs = np.loadtxt(target_dir + "/data/random_5_fun.csv", delimiter=',')
         cls.fits = np.loadtxt(target_dir + "/data/fit_5_fun.csv", delimiter=',')
         cls.scheduling_problem_type = SchedulingProblemType(TaskLoadType.NONUNIFORM,
-                                                            TaskRelationType.UNRELATED,
-                                                            delta_function_class=DeltaFunctionClass.SAMPLED)
+                                                            TaskRelationType.UNRELATED
+                                                            )
+
         cls.scheduling_problem = SchedulingProblem(cls.scheduling_problem_type,
                                                    N=len(p),
                                                    W=10,
@@ -73,8 +74,8 @@ class PrecedenceTaskCase(unittest.TestCase):
         cls.delta_funs = np.loadtxt(target_dir + "/data/random_5_fun.csv", delimiter=',')
         cls.fits = np.loadtxt(target_dir + "/data/fit_5_fun.csv", delimiter=',')
         cls.scheduling_problem_type = SchedulingProblemType(TaskLoadType.NONUNIFORM,
-                                                            TaskRelationType.PRECEDENCE,
-                                                            delta_function_class=DeltaFunctionClass.SAMPLED)
+                                                            TaskRelationType.PRECEDENCE
+                                                            )
         cls.scheduling_problem = SchedulingProblem(cls.scheduling_problem_type,
                                                    N=len(p),
                                                    W=10,
@@ -130,7 +131,6 @@ class MultimachineTaskCase(unittest.TestCase):
         cls.fits = np.loadtxt(target_dir + "/data/fit_5_fun.csv", delimiter=',')
         cls.scheduling_problem_type = SchedulingProblemType(TaskLoadType.NONUNIFORM,
                                                             TaskRelationType.UNRELATED,
-                                                            delta_function_class=DeltaFunctionClass.SAMPLED,
                                                             machine_load_type=MachineLoadType.UNIFORM)
 
         cls.scheduling_problem = SchedulingProblem(cls.scheduling_problem_type,
@@ -195,7 +195,6 @@ class NonuniformMultimachineTaskCase(unittest.TestCase):
 
         cls.scheduling_problem_type = SchedulingProblemType(TaskLoadType.NONUNIFORM,
                                                             TaskRelationType.UNRELATED,
-                                                            delta_function_class=DeltaFunctionClass.SAMPLED,
                                                             machine_load_type=MachineLoadType.NONUNIFORM)
 
         cls.scheduling_problem_0 = SchedulingProblem(cls.scheduling_problem_type,
