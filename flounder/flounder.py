@@ -35,8 +35,6 @@ def calculate_p_vars(p_vec, N, M):
         x[i][p_vec[i]] = 1
     return epsilon, x
 
-
-
 # In code, first index of tasks and machines is 0
 # In reference and display, first index of tasks and machines is 1
 
@@ -153,12 +151,7 @@ class SchedulingProblem:
             self.J = nx.to_networkx_graph(B, create_using=nx.DiGraph)
 
     def sample_delta_bar(self):
-        sample_h = None
-        if self.problem_type.machine_load_type == MachineLoadType.NONUNIFORM:
-            sample_h = {"h_1": self.h_1, "h_2": self.h_2}
-        else:
-            sample_h = self.h
-        self.delta_bar_sample = sample_generic_fun(self.delta_bar_fun, sample_h, self.t_sample, self.sample_dim)
+        self.delta_bar_sample = sample_generic_fun(self.delta_bar_fun, self.h, self.t_sample, self.sample_dim)
 
     def sample_delta_hat(self):
         self.delta_hat_sample = sample_generic_fun(self.delta_hat_fun, self.d, self.t_sample, self.sample_dim)
@@ -215,7 +208,7 @@ class SchedulingProblem:
                     self.permute_P()
 
                 elif self.het_method_hyperplane == 1:
-                    self.h_1, self.h_2 = approximate_delta_num_1(self.delta_sample, self.N, self.M, self.t_sample)
+                    self.h = approximate_delta_num_1(self.delta_sample, self.N, self.M, self.t_sample)
 
                 elif self.het_method_hyperplane == 2:
                     self.h, self.total_approx_error = approximate_delta_num_2(self.d, self.delta_sample, self.H, self.N, self.M, self.t_sample)
@@ -225,9 +218,9 @@ class SchedulingProblem:
                     self.h, self.P_permutation = approximate_delta_num_0_het(self.d, self.delta_sample, self.H, self.N, self.num_steps, self.num_types, self.M, self.machine_types, self.t_sample, self.task_types)
                     self.permute_P()
                 elif self.het_method_hyperplane == 1:
-                    self.h_1, self.h_2 = approximate_delta_num_1_het(self.delta_sample, self.N, self.num_types, self.M, self.machine_types, self.t_sample, self.task_types)
+                    self.h = approximate_delta_num_1_het(self.delta_sample, self.N, self.num_types, self.M, self.machine_types, self.t_sample, self.task_types)
                 elif self.het_method_hyperplane == 2:
-                    self.h, self.total_approx_error = approximate_delta_num_2(self.d, self.delta_sample, self.H, self.N, self.M, self.t_sample)
+                    self.h, self.total_approx_error = approximate_delta_num_2_het(self.d, self.delta_sample, self.H, self.N, self.M, self.t_sample)
 
     def WCPT_compute_schedule(self):
         if self.d is None:
@@ -239,134 +232,8 @@ class SchedulingProblem:
         self.exact_schedule, self.exact_objective = compute_exact_schedule(self)
 
     def compute_schedule(self):
-        if self.h is None:
-            self.approximate_delta()
+        # if self.h is None:
+        self.approximate_delta()
 
         self.schedule, self.objective = compute_approximation_schedule(self, self.h)
-
-    def het_compute_schedule(self):
-        if self.h is None:
-            self.approximate_delta()
-        # note that we draw p from 0 to M-1 here
-        possible_M_assignments = [i for i in range(self.M)]
-        # generate combination of multisets of length 5
-        p_cand_list = itertools.product(possible_M_assignments, repeat=self.N)
-        p_actual = []
-        epsilon_actual = []
-        x_actual = []
-
-
-        if self.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-            for p_cand in p_cand_list:
-                type_valid = True
-                for i in range(len(p_cand)):
-                    type_valid = type_valid and self.machine_types[p_cand[i]] == self.task_types[i]
-                if type_valid:
-                    p_actual.append(p_cand)
-                    epx = calculate_p_vars(p_cand, self.N, self.M)
-                    epsilon_actual.append(epx[0])
-                    x_actual.append(epx[1])
-        else:
-            # p_cand_list
-            for i in p_cand_list:
-                epx = calculate_p_vars(i, self.N, self.M)
-                epsilon_actual.append(epx[0])
-                x_actual.append(epx[1])
-                p_actual.append(i)
-
-        W_min_actual = []
-        schedule_actual = []
-        for p_index in range(len(p_actual)):
-            print(p_actual[p_index])
-            p_res = self.restricted_p_compute_schedule(p_actual[p_index],
-                                                       epsilon_actual[p_index],
-                                                       x_actual[p_index]
-                                                       )
-            if p_res[0] >= 0:
-                W_min_actual.append(p_res[0])
-                schedule_actual.append(p_res[1])
-                # print(p_res)
-
-        self.W_min_actual = np.array(W_min_actual)
-        self.schedule_actual = schedule_actual
-        min_schedule_index = np.argmin(W_min_actual)
-        self.objective = self.W_min_actual[min_schedule_index]
-        self.schedule = schedule_actual[min_schedule_index]
-
-    def restricted_p_compute_schedule(self, p, epsilon, x):
-        model = mip.Model(solver_name=mip.CBC)
-        model.verbose = 0
-
-        s = [model.add_var(name='s({})'.format(i+1)) for i in range(self.N)]
-        C = [model.add_var(name='C({})'.format(i+1)) for i in range(self.N)]
-        sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(self.N)]
-                 for j in range(self.N)]
-
-        if self.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
-            gamma = [
-                [
-                    [
-                        [
-                            model.add_var(var_type=mip.BINARY, name='gamma({},{},{},{})'.format(i + 1, j + 1, h + 1, k + 1))
-                            for k in range(self.M)
-                        ]
-                        for h in range(self.M)
-                    ]
-                    for j in range(self.N)
-                ]
-                for i in range(self.N)
-            ]
-
-        for i in range(self.N):
-            model += s[i] >= 0
-            model += C[i] <= self.W
-            # # TODO:  change to check for specifically het machines vs het tasks, the above is only valid for tasks
-            C[i] = self.h[i, p[i], 0]*s[i] + self.h[i, p[i], 1]
-
-        z = model.add_var(name='z')
-        for i in range(self.N):
-            model += z >= C[i]
-
-        model.objective = z
-
-        for i in range(self.N):
-            for j in range(self.N):
-                if j != i:
-                    if not self.multimachine:
-                        model += sigma[i][j] + sigma[j][i] == 1
-                    else:
-                        model += sigma[i][j] + sigma[j][i] <= 1
-                        # model += epsilon[i][j] + epsilon[j][i] <= 1
-                        model += epsilon[i][j] + epsilon[j][i] + sigma[i][j] + sigma[j][i] >= 1
-                        # model += p[j] - p[i] - epsilon[i][j] * (self.M + 1) <= 0
-                        # model += p[j] - p[i] - 1 - (epsilon[i][j] - 1) * (self.M + 1) >= 0
-
-                    model += s[j] - C[i] - (sigma[i][j] - 1)*self.W >= 0
-                    if self.problem_type.task_relation_type == TaskRelationType.PRECEDENCE:
-                        model += sigma[i][j] >= self.A[i, j]
-
-                    if self.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
-                        for h in range(self.M):
-                            for k in range(self.M):
-                                model += x[i][h] - gamma[i][j][h][k] >= 0
-                                model += x[j][k] - gamma[i][j][h][k] >= 0
-                                model += x[i][h] + x[j][k] - 1 - gamma[i][j][h][k] <= 0
-                                model += self.A[i][j]*gamma[i][j][h][k] <= self.B[h][k]
-
-        status = model.optimize()
-
-
-        if status == mip.OptimizationStatus.INFEASIBLE:
-            # print("Infeasible")
-            objective = -1
-            return objective, None
-        else:
-            objective = model.objective_value
-
-        schedule = []
-
-        for i in range(self.N):
-            schedule.append((s[i].x, p[i]))
-
-        return objective, schedule
 

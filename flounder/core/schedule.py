@@ -349,143 +349,280 @@ def compute_exact_schedule(scheduling_problem):
 
     return schedule, objective
 
-def compute_approximation_schedule(scheduling_problem, h):
-    p = {}
+def calculate_p_vars(p_vec, N, M):
+    epsilon = np.zeros((N, N))
+    x = np.zeros((N, M))
 
-    if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-        scheduling_problem.U = np.zeros((scheduling_problem.N, scheduling_problem.M))
-        for i in range(scheduling_problem.N):
-            for j in range(scheduling_problem.M):
-                if scheduling_problem.task_types[i] == scheduling_problem.machine_types[j]:
-                    scheduling_problem.U[i, j] = 1
+    for i in range(N):
+        for j in range(N):
+            if p_vec[i] < p_vec[j]:
+                epsilon[i][j] = 1
+        x[i][p_vec[i]] = 1
+    return epsilon, x
 
-    model = mip.Model(solver_name=mip.CBC)
-    model.verbose = 0
+def restricted_p_compute_schedule(scheduling_problem, h, p, epsilon, x):
+        model = mip.Model(solver_name=mip.CBC)
+        model.verbose = 0
 
-    s = [model.add_var(name='s({})'.format(i + 1)) for i in range(scheduling_problem.N)]
-    C = [model.add_var(name='C({})'.format(i + 1)) for i in range(scheduling_problem.N)]
-    sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(scheduling_problem.N)]
-             for j in range(scheduling_problem.N)]
-    if scheduling_problem.multimachine:
-        p = [model.add_var(var_type=mip.INTEGER, name='p({})'.format(i + 1)) for i in range(scheduling_problem.N)]
-        x = [[model.add_var(var_type=mip.BINARY, name='x({},{}'.format(i + 1, k + 1)) for k in range(scheduling_problem.M)]
-             for i in range(scheduling_problem.N)]
-        epsilon = [
-            [model.add_var(var_type=mip.BINARY, name='epsilon({},{})'.format(i + 1, j + 1)) for i in range(scheduling_problem.N)]
-            for j in range(scheduling_problem.N)]
-        proc_assign_sum = {}
+        s = [model.add_var(name='s({})'.format(i+1)) for i in range(scheduling_problem.N)]
+        C = [model.add_var(name='C({})'.format(i+1)) for i in range(scheduling_problem.N)]
+        sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(scheduling_problem.N)]
+                 for j in range(scheduling_problem.N)]
 
-    if scheduling_problem.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
-        gamma = [
-            [
+        if scheduling_problem.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
+            gamma = [
                 [
                     [
-                        model.add_var(var_type=mip.BINARY, name='gamma({},{},{},{})'.format(i + 1, j + 1, h + 1, k + 1))
-                        for k in range(scheduling_problem.M)
+                        [
+                            model.add_var(var_type=mip.BINARY, name='gamma({},{},{},{})'.format(i + 1, j + 1, h + 1, k + 1))
+                            for k in range(scheduling_problem.M)
+                        ]
+                        for h in range(scheduling_problem.M)
                     ]
-                    for h in range(scheduling_problem.M)
+                    for j in range(scheduling_problem.N)
                 ]
-                for j in range(scheduling_problem.N)
+                for i in range(scheduling_problem.N)
             ]
-            for i in range(scheduling_problem.N)
-        ]
 
-    for i in range(scheduling_problem.N):
-        model += s[i] >= 0
-        model += C[i] <= scheduling_problem.W
-        if scheduling_problem.multimachine:
-            model += p[i] >= 0
-            model += p[i] <= scheduling_problem.M - 1
-            p[i] = 0
-            proc_assign_sum[i] = 0
-            for k in range(scheduling_problem.M):
-                p[i] = p[i] + k * x[i][k]
-                proc_assign_sum[i] = proc_assign_sum[i] + x[i][k]
-            model += proc_assign_sum[i] == 1
-
-        if len(scheduling_problem.delta_sample.shape) == 1:
-            C[i] = scheduling_problem.h[0] * s[i] + scheduling_problem.h[1]
-        elif len(scheduling_problem.delta_sample.shape) == 2:
-            C[i] = scheduling_problem.h[i, 0] * s[i] + scheduling_problem.h[i, 1]
-        # TODO:  change to check for specifically het machines vs het tasks, the above is only valid for tasks
-        elif len(scheduling_problem.delta_sample.shape) == 3:
-            if scheduling_problem.het_method_hyperplane == 0:
-                C[i] = scheduling_problem.h[i, 0] * s[i] + scheduling_problem.h[i, 1] * p[i] + scheduling_problem.h[i, 2]
-            elif scheduling_problem.het_method_hyperplane == 1:
-                C[i] = scheduling_problem.h_1[i] * s[i]
-                for k in range(scheduling_problem.M):
-                    C[i] = C[i] + x[i][k] * scheduling_problem.h_2[i, k]
-
-    if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
         for i in range(scheduling_problem.N):
-            for j in range(scheduling_problem.M):
-                model += x[i][j] <= scheduling_problem.U[i][j]
+            model += s[i] >= 0
+            model += C[i] <= scheduling_problem.W
+            # # TODO:  change to check for specifically het machines vs het tasks, the above is only valid for tasks
+            C[i] = h[i, p[i], 0]*s[i] + h[i, p[i], 1]
 
-    z = model.add_var(name='z')
-    for i in range(scheduling_problem.N):
-        model += z >= C[i]
+        z = model.add_var(name='z')
+        for i in range(scheduling_problem.N):
+            model += z >= C[i]
 
-    model.objective = z
+        model.objective = z
 
-    for i in range(scheduling_problem.N):
-        for j in range(scheduling_problem.N):
-            if j != i:
-                if not scheduling_problem.multimachine:
-                    model += sigma[i][j] + sigma[j][i] == 1
-                else:
-                    model += sigma[i][j] + sigma[j][i] <= 1
-                    model += epsilon[i][j] + epsilon[j][i] <= 1
-                    model += epsilon[i][j] + epsilon[j][i] + sigma[i][j] + sigma[j][i] >= 1
-                    model += p[j] - p[i] - epsilon[i][j] * (scheduling_problem.M + 1) <= 0
-                    model += p[j] - p[i] - 1 - (epsilon[i][j] - 1) * (scheduling_problem.M + 1) >= 0
+        for i in range(scheduling_problem.N):
+            for j in range(scheduling_problem.N):
+                if j != i:
+                    if not scheduling_problem.multimachine:
+                        model += sigma[i][j] + sigma[j][i] == 1
+                    else:
+                        model += sigma[i][j] + sigma[j][i] <= 1
+                        # model += epsilon[i][j] + epsilon[j][i] <= 1
+                        model += epsilon[i][j] + epsilon[j][i] + sigma[i][j] + sigma[j][i] >= 1
+                        # model += p[j] - p[i] - epsilon[i][j] * (scheduling_problem.M + 1) <= 0
+                        # model += p[j] - p[i] - 1 - (epsilon[i][j] - 1) * (scheduling_problem.M + 1) >= 0
 
-                model += s[j] - C[i] - (sigma[i][j] - 1) * scheduling_problem.W >= 0
-                if scheduling_problem.problem_type.task_relation_type == TaskRelationType.PRECEDENCE:
-                    model += sigma[i][j] >= scheduling_problem.A[i, j]
+                    model += s[j] - C[i] - (sigma[i][j] - 1)*scheduling_problem.W >= 0
+                    if scheduling_problem.problem_type.task_relation_type == TaskRelationType.PRECEDENCE:
+                        model += sigma[i][j] >= scheduling_problem.A[i, j]
 
-                if scheduling_problem.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
-                    for h in range(scheduling_problem.M):
-                        for k in range(scheduling_problem.M):
-                            model += x[i][h] - gamma[i][j][h][k] >= 0
-                            model += x[j][k] - gamma[i][j][h][k] >= 0
-                            model += x[i][h] + x[j][k] - 1 - gamma[i][j][h][k] <= 0
-                            model += scheduling_problem.A[i][j] * gamma[i][j][h][k] <= scheduling_problem.B[h][k]
+                    if scheduling_problem.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
+                        for h in range(scheduling_problem.M):
+                            for k in range(scheduling_problem.M):
+                                model += x[i][h] - gamma[i][j][h][k] >= 0
+                                model += x[j][k] - gamma[i][j][h][k] >= 0
+                                model += x[i][h] + x[j][k] - 1 - gamma[i][j][h][k] <= 0
+                                model += scheduling_problem.A[i][j]*gamma[i][j][h][k] <= scheduling_problem.B[h][k]
 
-    status = model.optimize()
-
-    if status == mip.OptimizationStatus.INFEASIBLE:
-        return False
-
-    objective = model.objective_value
-
-    # print(scheduling_problem.objective)
+        status = model.optimize()
 
 
-    if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS and scheduling_problem.p_permuted:
-        # unpermute
-        pasum_series = np.zeros(scheduling_problem.N)
-        for o in range(scheduling_problem.N):
-            pasum_series[o] = pasum(x, i, scheduling_problem.M)
-        schedule_series = pasum_series.copy()
-        big_permute = []
-        for u in range(scheduling_problem.num_types):
-            big_permute = np.concatenate((big_permute, np.array(scheduling_problem.P_permutation[u])))
-
-    schedule = []
-
-    for i in range(scheduling_problem.N):
-        if scheduling_problem.multimachine:
-            if scheduling_problem.p_permuted:
-                if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
-                    schedule.append((s[i].x, scheduling_problem.P_permutation[pasum(x, i, scheduling_problem.M)]))
-                elif scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
-                    schedule.append((s[i].x, np.where(big_permute == pasum(x, i, scheduling_problem.M))[0][0]))
-            else:
-                schedule.append((s[i].x, pasum(x, i, scheduling_problem.M)))
+        if status == mip.OptimizationStatus.INFEASIBLE:
+            # print("Infeasible")
+            objective = -1
+            return objective, None
         else:
-            schedule.append((s[i].x, 0))
+            objective = model.objective_value
 
-    return schedule, objective
-    # print("Schedule")
-    # print(scheduling_problem.schedule)
+        schedule = []
+
+        for i in range(scheduling_problem.N):
+            schedule.append((s[i].x, p[i]))
+
+        return objective, schedule
+
+
+def compute_approximation_schedule(scheduling_problem, h):
+    if scheduling_problem.problem_type.machine_load_type == MachineLoadType.NONUNIFORM and scheduling_problem.het_method_hyperplane == 2:
+        # note that we draw p from 0 to M-1 here
+        possible_M_assignments = [i for i in range(scheduling_problem.M)]
+        # generate combination of multisets of length 5
+        p_cand_list = itertools.product(possible_M_assignments, repeat=scheduling_problem.N)
+        p_actual = []
+        epsilon_actual = []
+        x_actual = []
+
+
+        if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
+            for p_cand in p_cand_list:
+                type_valid = True
+                for i in range(len(p_cand)):
+                    type_valid = type_valid and scheduling_problem.machine_types[p_cand[i]] == scheduling_problem.task_types[i]
+                if type_valid:
+                    p_actual.append(p_cand)
+                    epx = calculate_p_vars(p_cand, scheduling_problem.N, scheduling_problem.M)
+                    epsilon_actual.append(epx[0])
+                    x_actual.append(epx[1])
+        else:
+            # p_cand_list
+            for i in p_cand_list:
+                epx = calculate_p_vars(i, scheduling_problem.N, scheduling_problem.M)
+                epsilon_actual.append(epx[0])
+                x_actual.append(epx[1])
+                p_actual.append(i)
+
+        W_min_actual = []
+        schedule_actual = []
+        for p_index in range(len(p_actual)):
+            print(p_actual[p_index])
+            p_res = restricted_p_compute_schedule(scheduling_problem, h, p_actual[p_index],
+                                                       epsilon_actual[p_index],
+                                                       x_actual[p_index]
+                                                       )
+            if p_res[0] >= 0:
+                W_min_actual.append(p_res[0])
+                schedule_actual.append(p_res[1])
+                # print(p_res)
+
+        scheduling_problem.W_min_actual = np.array(W_min_actual)
+        scheduling_problem.schedule_actual = schedule_actual
+        min_schedule_index = np.argmin(W_min_actual)
+        objective = scheduling_problem.W_min_actual[min_schedule_index]
+        schedule = schedule_actual[min_schedule_index]
+        return schedule, objective
+    else:
+        p = {}
+
+        if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
+            scheduling_problem.U = np.zeros((scheduling_problem.N, scheduling_problem.M))
+            for i in range(scheduling_problem.N):
+                for j in range(scheduling_problem.M):
+                    if scheduling_problem.task_types[i] == scheduling_problem.machine_types[j]:
+                        scheduling_problem.U[i, j] = 1
+
+        model = mip.Model(solver_name=mip.CBC)
+        model.verbose = 0
+
+        s = [model.add_var(name='s({})'.format(i + 1)) for i in range(scheduling_problem.N)]
+        C = [model.add_var(name='C({})'.format(i + 1)) for i in range(scheduling_problem.N)]
+        sigma = [[model.add_var(var_type=mip.BINARY, name='sigma({},{})'.format(i + 1, j + 1)) for i in range(scheduling_problem.N)]
+                 for j in range(scheduling_problem.N)]
+        if scheduling_problem.multimachine:
+            p = [model.add_var(var_type=mip.INTEGER, name='p({})'.format(i + 1)) for i in range(scheduling_problem.N)]
+            x = [[model.add_var(var_type=mip.BINARY, name='x({},{}'.format(i + 1, k + 1)) for k in range(scheduling_problem.M)]
+                 for i in range(scheduling_problem.N)]
+            epsilon = [
+                [model.add_var(var_type=mip.BINARY, name='epsilon({},{})'.format(i + 1, j + 1)) for i in range(scheduling_problem.N)]
+                for j in range(scheduling_problem.N)]
+            proc_assign_sum = {}
+
+        if scheduling_problem.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
+            gamma = [
+                [
+                    [
+                        [
+                            model.add_var(var_type=mip.BINARY, name='gamma({},{},{},{})'.format(i + 1, j + 1, h + 1, k + 1))
+                            for k in range(scheduling_problem.M)
+                        ]
+                        for h in range(scheduling_problem.M)
+                    ]
+                    for j in range(scheduling_problem.N)
+                ]
+                for i in range(scheduling_problem.N)
+            ]
+
+        for i in range(scheduling_problem.N):
+            model += s[i] >= 0
+            model += C[i] <= scheduling_problem.W
+            if scheduling_problem.multimachine:
+                model += p[i] >= 0
+                model += p[i] <= scheduling_problem.M - 1
+                p[i] = 0
+                proc_assign_sum[i] = 0
+                for k in range(scheduling_problem.M):
+                    p[i] = p[i] + k * x[i][k]
+                    proc_assign_sum[i] = proc_assign_sum[i] + x[i][k]
+                model += proc_assign_sum[i] == 1
+
+            if len(scheduling_problem.delta_sample.shape) == 1:
+                C[i] = h[0] * s[i] + h[1]
+            elif len(scheduling_problem.delta_sample.shape) == 2:
+                C[i] = h[i, 0] * s[i] + h[i, 1]
+            # TODO:  change to check for specifically het machines vs het tasks, the above is only valid for tasks
+            elif len(scheduling_problem.delta_sample.shape) == 3:
+                if scheduling_problem.het_method_hyperplane == 0:
+                    C[i] = h[i, 0] * s[i] + h[i, 1] * p[i] + h[i, 2]
+                elif scheduling_problem.het_method_hyperplane == 1:
+                    C[i] = h["h_1"][i] * s[i]
+                    for k in range(scheduling_problem.M):
+                        C[i] = C[i] + x[i][k] * h["h_2"][i, k]
+
+        if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
+            for i in range(scheduling_problem.N):
+                for j in range(scheduling_problem.M):
+                    model += x[i][j] <= scheduling_problem.U[i][j]
+
+        z = model.add_var(name='z')
+        for i in range(scheduling_problem.N):
+            model += z >= C[i]
+
+        model.objective = z
+
+        for i in range(scheduling_problem.N):
+            for j in range(scheduling_problem.N):
+                if j != i:
+                    if not scheduling_problem.multimachine:
+                        model += sigma[i][j] + sigma[j][i] == 1
+                    else:
+                        model += sigma[i][j] + sigma[j][i] <= 1
+                        model += epsilon[i][j] + epsilon[j][i] <= 1
+                        model += epsilon[i][j] + epsilon[j][i] + sigma[i][j] + sigma[j][i] >= 1
+                        model += p[j] - p[i] - epsilon[i][j] * (scheduling_problem.M + 1) <= 0
+                        model += p[j] - p[i] - 1 - (epsilon[i][j] - 1) * (scheduling_problem.M + 1) >= 0
+
+                    model += s[j] - C[i] - (sigma[i][j] - 1) * scheduling_problem.W >= 0
+                    if scheduling_problem.problem_type.task_relation_type == TaskRelationType.PRECEDENCE:
+                        model += sigma[i][j] >= scheduling_problem.A[i, j]
+
+                    if scheduling_problem.problem_type.machine_relation_type == MachineRelationType.PRECEDENCE:
+                        for h in range(scheduling_problem.M):
+                            for k in range(scheduling_problem.M):
+                                model += x[i][h] - gamma[i][j][h][k] >= 0
+                                model += x[j][k] - gamma[i][j][h][k] >= 0
+                                model += x[i][h] + x[j][k] - 1 - gamma[i][j][h][k] <= 0
+                                model += scheduling_problem.A[i][j] * gamma[i][j][h][k] <= scheduling_problem.B[h][k]
+
+        status = model.optimize()
+
+        if status == mip.OptimizationStatus.INFEASIBLE:
+            return False
+
+        objective = model.objective_value
+
+        # print(scheduling_problem.objective)
+
+
+        if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS and scheduling_problem.p_permuted:
+            # unpermute
+            pasum_series = np.zeros(scheduling_problem.N)
+            for o in range(scheduling_problem.N):
+                pasum_series[o] = pasum(x, i, scheduling_problem.M)
+            schedule_series = pasum_series.copy()
+            big_permute = []
+            for u in range(scheduling_problem.num_types):
+                big_permute = np.concatenate((big_permute, np.array(scheduling_problem.P_permutation[u])))
+
+        schedule = []
+
+        for i in range(scheduling_problem.N):
+            if scheduling_problem.multimachine:
+                if scheduling_problem.p_permuted:
+                    if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HOMOGENEOUS:
+                        schedule.append((s[i].x, scheduling_problem.P_permutation[pasum(x, i, scheduling_problem.M)]))
+                    elif scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
+                        schedule.append((s[i].x, np.where(big_permute == pasum(x, i, scheduling_problem.M))[0][0]))
+                else:
+                    schedule.append((s[i].x, pasum(x, i, scheduling_problem.M)))
+            else:
+                schedule.append((s[i].x, 0))
+
+        return schedule, objective
+        # print("Schedule")
+        # print(scheduling_problem.schedule)
 

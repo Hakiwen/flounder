@@ -185,7 +185,7 @@ def approximate_delta_num_1(delta_sample, N, M, t_sample):
         qp_res = het_qp(t_sample, this_B)
         h_1[i] = qp_res[0]
         h_2[i, :] = qp_res[1]
-    return h_1, h_2
+    return {"h_1": h_1, "h_2": h_2}
 
 def approximate_delta_num_2(d, delta_sample, H, N, M, t_sample):
     h = np.zeros((N, M, 2))
@@ -263,7 +263,7 @@ def approximate_delta_num_1_het(delta_sample, N, num_types, M, machine_types, t_
             qp_res = het_qp(t_sample, this_B)
             h_1[i] = qp_res[0]
             h_2[i, type_u_machines] = qp_res[1]
-    return h_1, h_2
+    return {"h_1": h_1, "h_2": h_2}
 
 # pass through of nonuniform machine for
 def approximate_delta_num_2_het(d, delta_sample, H, N, M, t_sample):

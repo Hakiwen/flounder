@@ -225,7 +225,7 @@ class NonuniformMultimachineTaskCase(unittest.TestCase):
 
         cls.scheduling_problem_0.compute_schedule()
         cls.scheduling_problem_1.compute_schedule()
-        cls.scheduling_problem_2.het_compute_schedule()
+        cls.scheduling_problem_2.compute_schedule()
 
         cls.scheduling_problem_0.exact_compute_schedule()
         cls.scheduling_problem_0.WCPT_compute_schedule()
