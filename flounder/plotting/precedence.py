@@ -1,21 +1,9 @@
-from enum import Enum
-
 import numpy as np
-
-import mip
-
 import networkx as nx
-
-from scipy import optimize
-
-import itertools
-
-import mip
-
-from plotly.subplots import make_subplots
 from plotly import graph_objects as go
-import plotly.figure_factory as ff
 
+# Plots a digraph with nodes in a circle
+# G is a netwokx digraph
 def plot_circ_digraph(G):
     pos = nx.layout.circular_layout(G)
     node_angles = 2 * np.pi * np.linspace(0, 1, G.order(), endpoint=False) + np.pi / 2

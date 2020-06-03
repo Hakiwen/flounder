@@ -1,22 +1,10 @@
-from enum import Enum
-
 import numpy as np
 
-import mip
-
-import networkx as nx
-
-from scipy import optimize
-
-import itertools
-
-import mip
-
-from plotly.subplots import make_subplots
-from plotly import graph_objects as go
-import plotly.figure_factory as ff
 
 # TODO: Insert this into the permute_P function
+
+# rearranges the machine precedence adjacency matrix (B) with permutation of machine ordering
+# returns the rearranged B (does not change input)
 def permute_B(B, permutation):
     M = B.shape[0]
     new_B = np.zeros(B.shape)
@@ -25,13 +13,17 @@ def permute_B(B, permutation):
             new_B[i, j] = B[permutation[i], permutation[j]]
     return new_B
 
+# rearranges the sample of the completion time function (sample) using a reordering (permutation) of the machines
+# returns the rearranged sample (does not change input)
 def permute_sample(sample, permutation):
     new_sample = np.zeros(sample.shape)
     for i in range(sample.shape[1]):
         new_sample[:, i, :] = sample[:, permutation[i], :]
     return new_sample
 
-# Permute B with a subset of machines, representing a particular type
+# rearranges machine precedence matrix adjacency matrix (B) with a subset of machines, representing a particular type
+# type_machines is a vector of the machines in the original ordering of that type
+# returns the rearranged B (does not change input)
 def permute_typed_B(B, permutation, type_machines):
     num_type_machines = len(type_machines)
     new_B = B.copy()
@@ -40,7 +32,9 @@ def permute_typed_B(B, permutation, type_machines):
             new_B[type_machines[i], type_machines[j]] = B[permutation[i], permutation[j]]
     return new_B
 
-# Permute a sample with a subset of machines, representing a particular type
+# rearranges a sample of the completion time function with a subset of machines, representing a particular type
+# type_machines is a vector of the machines in the original ordering of that type
+# returns the rearranged sample (does not change input)
 def permute_typed_sample(sample, permutation, type_machines):
     # Copy because it is only a partial permutation
     new_sample = sample.copy()

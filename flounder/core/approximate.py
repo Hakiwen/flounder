@@ -1,24 +1,9 @@
-from enum import Enum
-
 import numpy as np
-
 import mip
 
-import networkx as nx
 
-from scipy import optimize
-
-import itertools
-
-import mip
-
-from plotly.subplots import make_subplots
-from plotly import graph_objects as go
-import plotly.figure_factory as ff
-
-# X \in R^MxN, returns hyper x \in R^N
-# for writing, better definition of a hyperplane
-# Also determine best objective function and complexity of this
+# Finds the defining terms of x st. Ax>b in every dimension that minimizes the square of the error e = Ax-b
+# returns (x_found, error)
 def upperbounding_hyperplane(A, b):
     A = np.array(A)
     b = np.array(b)
@@ -45,6 +30,8 @@ def upperbounding_hyperplane(A, b):
     # print(x_found)
     return x_found, model.objective_value
 
+
+# A modification of the upperbounding hyperplane for method 2
 # t is a vector of the time samples, common for all rows of B
 # B is the samples, b_ij = the jth sample for the ith machine
 # returns (h_1, vector of h_2)
@@ -76,12 +63,17 @@ def het_qp(t, B):
 
     return h1_found, h2_found
 
+
+# find a reduced approximation window (where the completion time returns beyond the original window)
+# returns (ds, ts) where ds is the last sample of delta in the new window, ts is the new window length
 def find_approximation_window(delta_sample, t_sample, H):
     ds_index = (delta_sample <= H)
     ds = delta_sample[ds_index]
     ts = t_sample[ds_index]
     return ds, ts
 
+
+# finds a worst case processing time in a single dimension
 def find_single_WCPT(delta_sample, t_sample, H):
     d = None
     ds, ts = find_approximation_window(delta_sample, t_sample, H)
@@ -91,6 +83,8 @@ def find_single_WCPT(delta_sample, t_sample, H):
         d = H + 1
     return d
 
+
+# finds the general worst case processing time for 1,2, or 3 dimensioned sample (all within the context of the thesis)
 def find_WCPT(delta_sample, t_sample, H):
     d = None
     if len(delta_sample.shape) == 1:
@@ -106,8 +100,9 @@ def find_WCPT(delta_sample, t_sample, H):
                 d[i, j] = find_single_WCPT(delta_sample[i, j, :], t_sample, H)
     return d
 
-# Approximates single dimension of delta
-# TODO: evaluate if ts[-1] should be changed to H
+# TODO: determine if ts[-1] should be changed to H
+# finds affine approximation for a single dimension
+# return (h, error)
 def approximate_single_delta(d, delta_sample, H, t_sample):
     ds, ts = find_approximation_window(delta_sample, t_sample, H)
     this_sample = np.append(ds, ts[-1] + d)
@@ -117,9 +112,11 @@ def approximate_single_delta(d, delta_sample, H, t_sample):
     h, total_approx_error = upperbounding_hyperplane(this_in, this_sample)
     return h, total_approx_error
 
+
 # approximates delta for a uniform task problem, pass through atm
 def approximate_delta_ut(d, delta_sample, H, t_sample):
     return approximate_single_delta(d, delta_sample, H, t_sample)
+
 
 # approximates delta for a nonuniform task
 def approximate_delta_nut(d, delta_sample, H, N, t_sample):
@@ -130,7 +127,9 @@ def approximate_delta_nut(d, delta_sample, H, N, t_sample):
         h[i], total_approx_error[i] = approximate_single_delta(d[i], delta_sample[i, :], H, t_sample)
     return h, total_approx_error
 
+
 # approximates delta for a set of nonuniform machines using method 1
+# returns (h, permutation) instead of (h, error)
 def approximate_delta_num_0(d, delta_sample, H, N, num_steps, M, t_sample):
     # We get to choose our specific ordering of p, so we can also optimize over the reorderings of p
 
@@ -173,8 +172,10 @@ def approximate_delta_num_0(d, delta_sample, H, N, num_steps, M, t_sample):
     P_permutation = permutation_list[argmin_perm]
     # permute_P()
     return h, P_permutation
-#
 
+
+# approximates delta for a set of nonuniform machines using method 2
+# returns a dict with fields "h_1" and "h_2"
 def approximate_delta_num_1(delta_sample, N, M, t_sample):
     h_1 = np.zeros(N)
     h_2 = np.zeros((N, M))
@@ -187,6 +188,8 @@ def approximate_delta_num_1(delta_sample, N, M, t_sample):
         h_2[i, :] = qp_res[1]
     return {"h_1": h_1, "h_2": h_2}
 
+# approximates delta for a set of nonuniform machines and tasks using method 3
+# returns (h, error)
 def approximate_delta_num_2(d, delta_sample, H, N, M, t_sample):
     h = np.zeros((N, M, 2))
     error = np.zeros((N, M))
@@ -195,6 +198,8 @@ def approximate_delta_num_2(d, delta_sample, H, N, M, t_sample):
             h[i, j, :], error[i, j] = approximate_single_delta(d[i, j], delta_sample[i, j, :], H, t_sample)
     return h, error
 
+# approximates delta for a set of heterogeneous, i.e. typed, nonuiform machines using method 1
+# returns (h, permutations)
 def approximate_delta_num_0_het(d, delta_sample, H, N, num_steps, num_types, M, machine_types, t_sample, task_types):
     h_dim = 3
     h = np.zeros((N, 3))
@@ -247,6 +252,8 @@ def approximate_delta_num_0_het(d, delta_sample, H, N, num_steps, num_types, M, 
     return h, P_permutation
     # permute_P()
 
+# approximates delta for a set of heterogeneous, i.e. typed, nonuiform machines using method 2
+# returns a dict with fields "h_1" and "h_2"
 def approximate_delta_num_1_het(delta_sample, N, num_types, M, machine_types, t_sample, task_types):
     h_1 = np.zeros(N)
     h_2 = np.zeros((N, M))
@@ -265,6 +272,6 @@ def approximate_delta_num_1_het(delta_sample, N, num_types, M, machine_types, t_
             h_2[i, type_u_machines] = qp_res[1]
     return {"h_1": h_1, "h_2": h_2}
 
-# pass through of nonuniform machine for
+# pass through for typed nonuniform machine using method 3
 def approximate_delta_num_2_het(d, delta_sample, H, N, M, t_sample):
     return approximate_delta_num_2(d, delta_sample, H, N, M, t_sample)
