@@ -1,5 +1,5 @@
-import scheduling_problem, utils
-from problem_types import TaskLoadType, TaskRelationType, MachineLoadType, MachineCapabilityType, MachineRelationType, DeltaFunctionClass
+import ./flo
+from .types import TaskLoadType, TaskRelationType, MachineLoadType, MachineCapabilityType, MachineRelationType, DeltaFunctionClass
 
 import numpy as np
 
