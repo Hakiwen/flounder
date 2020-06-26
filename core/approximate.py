@@ -105,11 +105,15 @@ def find_WCPT(delta_sample, t_sample, H):
 # return (h, error)
 def approximate_single_delta(d, delta_sample, H, t_sample):
     ds, ts = find_approximation_window(delta_sample, t_sample, H)
-    this_sample = np.append(ds, ts[-1] + d)
-    ones = np.ones(this_sample.shape)
-    this_time = np.append(ts, ts[-1])
-    this_in = np.column_stack((this_time, ones))
-    h, total_approx_error = upperbounding_hyperplane(this_in, this_sample)
+    if len(ts) > 0:
+        this_sample = np.append(ds, ts[-1] + d)
+        ones = np.ones(this_sample.shape)
+        this_time = np.append(ts, ts[-1])
+        this_in = np.column_stack((this_time, ones))
+        h, total_approx_error = upperbounding_hyperplane(this_in, this_sample)
+    else:
+        h = [1, H]
+        total_approx_error = np.inf
     return h, total_approx_error
 
 

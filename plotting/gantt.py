@@ -68,7 +68,7 @@ def plot_schedule(schedule_to_plot, delta_sample, N, t_sample):
             tickformat=',d'
             # showticklabels=False
         ),
-        title="Schedule",
+        # title="Schedule",
         xaxis_title="Time",
         yaxis_title="Machine",
         showlegend=False,
@@ -81,8 +81,13 @@ def plot_schedule(schedule_to_plot, delta_sample, N, t_sample):
             b=100,
             t=100,
             pad=4
+        ),
+        font=dict(
+            family="Latin Modern",
+            size=20
         )
     )
     # fig.update_yaxes(range=[0, M + 1])
     # fig.update_xaxes(range=[0, W])
     fig.show(renderer="notebook")
+

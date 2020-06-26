@@ -24,9 +24,12 @@ def plot_delta_fun(scheduling_problem):
     fig = go.Figure()
     if len(scheduling_problem.delta_sample.shape) == 1:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_sample, name=r'$\delta$'))
-        fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_bar_sample, name=r'$\bar{\delta}$'))
-        fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_hat_sample, name=r'$\hat{\delta}$'))
+        # fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_sample, name=r'$\delta$'))
+        # fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_bar_sample, name=r'$\bar{\delta}$'))
+        # fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_hat_sample, name=r'$\hat{\delta}$'))
+        fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_sample, name=r'Exact'))
+        fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_hat_sample, name=r'WCPT'))
+        fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_bar_sample, name=r'Affine'))
     elif len(scheduling_problem.delta_sample.shape) == 2:
         fig = make_subplots(rows=scheduling_problem.N, cols=scheduling_problem.M)
         for i in range(scheduling_problem.delta_sample.shape[0]):
@@ -69,6 +72,15 @@ def plot_delta_fun(scheduling_problem):
             fig = make_subplots(cols=scheduling_problem.M, rows=scheduling_problem.N)
             for i in range(scheduling_problem.delta_sample.shape[0]):
                 for j in range(scheduling_problem.delta_sample.shape[1]):
+                    # fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_sample[i, j],
+                    #                          name=r'$\delta_{%i,%i}$' % (i + 1, j + 1)), row=i + 1,
+                    #               col=j + 1)
+                    # fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_bar_sample[i, j],
+                    #                          name=r'$\bar{\delta}_{%i,%i}$' % (i + 1, j + 1)),
+                    #               row=i + 1, col=j + 1)
+                    # fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_hat_sample[i, j],
+                    #                          name=r'$\hat{\delta}_{%i,%i}$' % (i + 1, j + 1)),
+                    #               row=i + 1, col=j + 1)
                     fig.add_trace(go.Scatter(x=scheduling_problem.t_sample, y=scheduling_problem.delta_sample[i, j],
                                              name=r'$\delta_{%i,%i}$' % (i + 1, j + 1)), row=i + 1,
                                   col=j + 1)
@@ -88,23 +100,39 @@ def plot_delta_fun(scheduling_problem):
     if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
         if scheduling_problem.num_types == 2:
         # if False:
-            fig_0.show()
-            fig_1.show()
 
             fig_0.update_layout(
                 title="Original and Approximation Completion Time Functions",
                 xaxis_title="Start Time",
                 yaxis_title="Completion Time",
                 height=1080,
-                width=1920
+                width=1920,
+                font=dict(
+                    family="Latin Modern",
+                    size=20
+                )
             )
             fig_1.update_layout(
                 title="Original and Approximation Completion Time Functions",
                 xaxis_title="Start Time",
                 yaxis_title="Completion Time",
                 height=1080,
-                width=1920
+                width=1920,
+                font=dict(
+                    family="Latin Modern",
+                    size=20
+                )
             )
+        fig_0.show()
+        fig_1.show()
         # fig.show()
     else:
+        fig.update_layout(
+            xaxis_title="Start Time",
+            yaxis_title="Completion Time",
+            font=dict(
+                family="Latin Modern",
+                size=20
+            )
+        )
         fig.show()

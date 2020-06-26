@@ -37,6 +37,7 @@ def stsum(g, i, M, num_steps, t_step):
 # finds the schedule minimizing makespan for a given problem using the worst case processing time approximation
 # d describes the worst case
 # returns (schedule, objective)
+# If the schedule is infeasible, returns empty schedule and negative objective value
 def compute_WCPT_schedule(scheduling_problem, d):
     if scheduling_problem.problem_type.machine_capability_type == MachineCapabilityType.HETEROGENEOUS:
         scheduling_problem.U = np.zeros((scheduling_problem.N, scheduling_problem.M))
@@ -138,7 +139,7 @@ def compute_WCPT_schedule(scheduling_problem, d):
     status = model.optimize()
 
     if status == mip.OptimizationStatus.INFEASIBLE:
-        return False
+        return [], -1
 
     objective = model.objective_value
 
@@ -323,7 +324,7 @@ def compute_exact_schedule(scheduling_problem):
     status = model.optimize()
 
     if status == mip.OptimizationStatus.INFEASIBLE:
-        return False
+        return [], -1
 
     objective = model.objective_value
 
@@ -469,7 +470,7 @@ def compute_approximation_schedule(scheduling_problem, h):
         W_min_actual = []
         schedule_actual = []
         for p_index in range(len(p_actual)):
-            print(p_actual[p_index])
+            # print(p_actual[p_index])
             p_res = restricted_p_compute_schedule(scheduling_problem, h, p_actual[p_index],
                                                        epsilon_actual[p_index],
                                                        x_actual[p_index]
@@ -479,11 +480,16 @@ def compute_approximation_schedule(scheduling_problem, h):
                 schedule_actual.append(p_res[0])
                 # print(p_res)
 
-        scheduling_problem.W_min_actual = np.array(W_min_actual)
-        scheduling_problem.schedule_actual = schedule_actual
-        min_schedule_index = np.argmin(W_min_actual)
-        objective = scheduling_problem.W_min_actual[min_schedule_index]
-        schedule = schedule_actual[min_schedule_index]
+        if len(W_min_actual) > 0:
+            scheduling_problem.W_min_actual = np.array(W_min_actual)
+            scheduling_problem.schedule_actual = schedule_actual
+            min_schedule_index = np.argmin(W_min_actual)
+            objective = scheduling_problem.W_min_actual[min_schedule_index]
+            schedule = schedule_actual[min_schedule_index]
+        else:
+            schedule = []
+            objective = -1
+
         return schedule, objective
     else:
         p = {}
@@ -590,7 +596,7 @@ def compute_approximation_schedule(scheduling_problem, h):
         status = model.optimize()
 
         if status == mip.OptimizationStatus.INFEASIBLE:
-            return False
+            return [], -1
 
         objective = model.objective_value
 

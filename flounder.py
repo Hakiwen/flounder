@@ -107,11 +107,11 @@ class SchedulingProblem:
             assert delta_sample.shape == (N, M, self.num_steps)
             self.delta_hat_fun = delta_hat_fun_3D
             self.sample_dim = (N, M, self.num_steps)
-            if het_method_hyperplane == 1:
+            if het_method_hyperplane == 0:
                 self.delta_bar_fun = delta_bar_fun_num_0
-            elif het_method_hyperplane == 2:
+            elif het_method_hyperplane == 1:
                 self.delta_bar_fun = delta_bar_fun_num_1
-            elif het_method_hyperplane == 3:
+            elif het_method_hyperplane == 2:
                 self.delta_bar_fun = delta_bar_fun_num_2
 
         self.multimachine = (problem_type.machine_load_type == MachineLoadType.UNIFORM
@@ -163,11 +163,14 @@ class SchedulingProblem:
 
         self.p_permuted = True
 
+    def find_WCPT(self):
+        self.d = find_WCPT(self.delta_sample, self.t_sample, self.H)
+
     # Algorithm 1 and qp
     def approximate_delta(self):
 
-        if self.d is None:
-            self.d = find_WCPT(self.delta_sample, self.t_sample, self.H)
+        # if self.d is None:
+        #     self.d = find_WCPT(self.delta_sample, self.t_sample, self.H)
 
         # The resulting approximation on uniform machine is the same as if single machine
         if self.problem_type.machine_load_type == MachineLoadType.SINGLE or self.problem_type.machine_load_type == MachineLoadType.UNIFORM:
@@ -203,8 +206,8 @@ class SchedulingProblem:
                     self.h, self.total_approx_error = approximate_delta_num_2_het(self.d, self.delta_sample, self.H, self.N, self.M, self.t_sample)
 
     def WCPT_compute_schedule(self):
-        if self.d is None:
-            self.d = find_WCPT(self.delta_sample, self.t_sample, self.H)
+        # if self.d is None:
+        #     self.d = find_WCPT(self.delta_sample, self.t_sample, self.H)
 
         self.WCPT_schedule, self.WCPT_objective = compute_WCPT_schedule(self, self.d)
 
