@@ -86,9 +86,11 @@ class SchedulingProblem:
             self.num_steps = len(t_sample)
         else:
             self.H = self.W
-            self.num_steps = 100
+            self.num_steps = delta_sample.shape[-1]
             # self.num_steps = int(self.W/100)
             self.t_sample = np.linspace(0, self.W, self.num_steps)
+            if t_step is None:
+                self.t_step = np.max(np.diff(self.t_sample))
 
         self.delta_sample = delta_sample
         if not problem_type.machine_load_type == MachineLoadType.NONUNIFORM:

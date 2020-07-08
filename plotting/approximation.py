@@ -4,7 +4,8 @@ from plotly.subplots import make_subplots
 from plotly import graph_objects as go
 
 from ..core.types import *
-
+# Plots scheduling problem completion time function from samples and the associated approximations
+# Returns figure object
 def plot_delta_fun(scheduling_problem):
 
     assert(scheduling_problem.delta_sample is not None)
@@ -125,14 +126,26 @@ def plot_delta_fun(scheduling_problem):
             )
         fig_0.show()
         fig_1.show()
+        return fig_0, fig_1
         # fig.show()
     else:
+        fig.update_xaxes(showline=True, linewidth=2, linecolor='black', mirror=True, showgrid = True, gridcolor='grey', gridwidth=1)
+        fig.update_yaxes(showline=True, linewidth=2, linecolor='black', mirror=True, showgrid = True, gridcolor='grey', gridwidth=1)
         fig.update_layout(
-            xaxis_title="Start Time",
-            yaxis_title="Completion Time",
+            xaxis_title="Start Time (min)",
+            yaxis_title="Completion Time (min)",
             font=dict(
                 family="Latin Modern",
                 size=20
+            ),
+            plot_bgcolor = 'rgba(0,0,0,0)',
+            legend = dict(
+            x=0.01,
+            y=0.99,
+            traceorder="normal",
+            bordercolor="Black",
+            borderwidth=2
             )
         )
         fig.show()
+        return fig
