@@ -64,11 +64,15 @@ class SchedulingProblem:
         self.delta_hat_sample = None
 
         self.d = None
-        self.schedule = None
         self.h = None
         self.P_permutation = None
         self.p_permuted = False
         self.WCPT_schedule = None
+        self.schedule = None
+        self.exact_schedule = None
+        self.objective = None
+        self.WCPT_objective = None
+        self.exact_objective = None
         self.H = None
 
         self.N = N
